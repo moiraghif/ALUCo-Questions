@@ -1,0 +1,21 @@
+{
+    "name": "Pitium",
+    "printLog": "true",
+    
+    "HTTP_triplestore": {
+        "name":     "sparql",
+        "url":      "https://dbpedia.org/",
+        "endpoint": "query"
+    },
+
+    "udpipe": {
+        "directory": "models",
+        "models": {
+            "en": "english-ewt-ud-2.5-191206.udpipe",
+            "it": "italian-isdt-ud-2.5-191206.udpipe",
+            "fr": "french-sequoia-ud-2.5-191206.udpipe",
+            "de": "german-hdt-ud-2.5-191206.udpipe",
+            "sp": "spanish-gsd-ud-2.5-191206.udpipe"
+        }
+    }
+}
