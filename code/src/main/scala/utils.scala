@@ -25,6 +25,8 @@ object utils {
     return heads.sum == 1
   }
 
+  def isSubStringOf(substring: Sentence, string: Sentence): Boolean =
+    string.id.containsSlice(substring.id)
 
   def getTreeRoot(tree: Sentence): String = {
     // get the root element of a (sub)TREE

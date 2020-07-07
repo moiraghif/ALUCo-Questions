@@ -106,6 +106,15 @@ object NEE {
   def slidingWindow(tree: Sentence): Array[QuerySolution] = {
     // use a sliding window to map the TREE to find a topic entity
     var out = Array[QuerySolution]()
+    var outSubString = new Sentence(Map[String, Array[String]](
+                                      "id"    -> Array[String](),
+                                      "text"  -> Array[String](),
+                                      "lemma" -> Array[String](),
+                                      "pos"   -> Array[String](),
+                                      "flex"  -> Array[String](),
+                                      "dep"   -> Array[String](),
+                                      "link"  -> Array[String]()),
+                                    "")
     var outScore = 0
     // from: http://universaldependencies.org/docs/u/pos/index.html
     val validPos: Array[String]  = Array("ADJ", "ADV", "INTJ", "NOUN", "PROPN", "VERB")
@@ -113,13 +122,15 @@ object NEE {
        i <- 0 to (tree.length - windowSize)) {
       // for each possible substring
       val candidate: Sentence = tree.getPortion((i, i + windowSize))
-      if (windowSize > 1 || (windowSize == 1 && validPos.contains(tree.pos(i)))) {
+      if (! isSubStringOf(candidate, outSubString) &&
+            (windowSize > 1 || (windowSize == 1 && validPos.contains(tree.pos(i))))) {
         val entities = getEntities(candidate).toArray
         val candidateScore = getTreeMaxDepth(candidate, tree)
         if (! entities.isEmpty && outScore <= candidateScore) {
           if (printLog) println(s"Depth: ${candidateScore}\nCandidates: ${out.length}")
           out = entities
           outScore = candidateScore
+          outSubString = candidate
         }
       }
     }
