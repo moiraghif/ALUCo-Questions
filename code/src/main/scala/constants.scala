@@ -28,6 +28,9 @@ object constants {
   }
 
 
+  def getLatency(): Float = getConfig("HTTP_triplestore.latency").toFloat * 1000
+
+
   def getServerURL: String = {
     // just get the clean URL of the server
     // (example): http://localhost:3030/QAsystem

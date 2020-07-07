@@ -5,7 +5,8 @@
     "HTTP_triplestore": {
         "name":     "sparql",
         "url":      "https://dbpedia.org/",
-        "endpoint": "query"
+        "endpoint": "query",
+        "latency":  0.1
     },
 
     "udpipe": {

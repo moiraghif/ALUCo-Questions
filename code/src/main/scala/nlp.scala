@@ -9,9 +9,56 @@ import cz.cuni.mff.ufal.udpipe.{
   Model,
   Pipeline }
 
+import main.utils._
 import main.constants._
 import semantics.NEE
 
+
+class Sentence(tree: Map[String, Array[String]], language: String) {
+  // this is just a data structure to store information about the sentence
+  val id: Array[String]    = tree("id")
+  val text: Array[String]  = tree("text")
+  val lemma: Array[String] = tree("lemma")
+  val pos: Array[String]   = tree("pos")
+  val flex: Array[String]  = tree("flex")
+  val dep: Array[String]   = tree("dep")
+  val link: Array[String]  = tree("link")
+
+  val lang: String = language
+  val length: Int = id.length
+
+  val isValidTree: Boolean = isATree(this)
+
+  def getPortion(portion: (Int, Int)): Sentence =
+    new Sentence(
+      Map[String, Array[String]](
+        "id"    -> id.slice(portion._1,    portion._2),
+        "text"  -> text.slice(portion._1,  portion._2),
+        "lemma" -> lemma.slice(portion._1, portion._2),
+        "pos"   -> pos.slice(portion._1,   portion._2),
+        "flex"  -> flex.slice(portion._1,  portion._2),
+        "dep"   -> dep.slice(portion._1,   portion._2),
+        "link"  -> link.slice(portion._1,  portion._2)),
+      lang)
+
+
+  override def toString(): String = {
+    // just print the table
+    val columns: Array[Array[String]] = Array(id, text, lemma, pos, flex, dep, link)
+    val lengthMax = columns.map(c => c.map(r => r.length).max)
+    val rows: Int = length
+    val cols: Int = columns.length
+    return (0 until rows).toArray.map(r =>
+      "| " +
+        (0 until cols).map(c => {
+                             val text = columns(c)(r)
+                             val spaces = lengthMax(c) - text.length
+                             text + " " * spaces
+                           }).mkString(" | ") +
+        " |").mkString("\n")
+  }
+
+}
 
 object Parser {
 
@@ -70,7 +117,7 @@ object Parser {
   }
 
 
-  def getTree(text: String, language: String): Map[String, Array[String]] = {
+  def getTree(text: String, language: String): Sentence = {
     // use a udipipe model to get a tree representation of a TEXT
     //
     // load the model for the specific language
@@ -102,29 +149,15 @@ object Parser {
             for ((column, i) <- outColumns.zipWithIndex)
               out(column) = out(column) :+ parsedLine.group(i + 1))
       })
-    return out.toMap
+    return new Sentence(out.toMap, language)
   }
 
-  def printTreeAsTable(tree: Map[String, Array[String]]): Unit = {
-    // just print the table of dependencies (TREE) as a table
-    val columns = Array("id", "text", "lemma", "pos", "flex", "dep", "link")
-    val lengthMax = columns.map(c => tree(c).map(r => r.length).max)
-    val printLine = (i: Int) => {
-      val line = columns.map(c => tree(c)(i))
-      print("| ")
-      (0 until line.length).foreach(i =>
-        print(line(i) + " " * (lengthMax(i) - line(i).length) + " | "))
-      print("\n")
-    }
-    (0 until tree("id").length).foreach(i => printLine(i))
-  }
-
-  def apply(text: String): Map[String, Array[String]] = {
+  def apply(text: String): Sentence = {
     // one function to rule all: it takes a TEXT and returns the parsed sentences
     val lang = getLanguage(text)
     val tree = getTree(text, lang)
-    if (printLog) printTreeAsTable(tree)
-    for (s <- NEE.slidingWindow(tree, lang))
+    if (printLog) println(tree.toString)
+    for (s <- NEE.slidingWindow(tree))
       println(s)
     return tree
   }

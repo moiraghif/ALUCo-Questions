@@ -15,7 +15,9 @@ import org.apache.jena.query.{
 
 import main.constants._
 import main.utils._
-import nlp.Parser
+import nlp.{
+  Parser,
+  Sentence }
 
 
 object KGfunctions {
@@ -50,7 +52,9 @@ object KGfunctions {
   def querySelect(query: String): Iterator[QuerySolution] = {
     // execute a QUERY with a SELECT statement
     // return an iterator of possible solutions
-    for {solution <- queryKG(query).execSelect().asScala} yield solution
+    val solutions = queryKG(query).execSelect().asScala
+    Thread.sleep(getLatency.toLong)
+    for {solution <- solutions} yield solution
   }
 
 }
@@ -76,45 +80,41 @@ object NEE {
          |}""".stripMargin)
 
 
-  def getEntities(subTree: Map[String, Array[String]], lang: String): Array[QuerySolution] = {
+  def getEntities(subTree: Sentence): Array[QuerySolution] = {
     // get the array of entities for a string
     
     // exclude the string if has not a valid syntax construction
-    if (! isATree(subTree("id"), subTree("dep")))
+    if (! subTree.isValidTree)
       return Array[QuerySolution]()
 
     // other strings are analyzed in order to search for combinations of upper/lower cases
-    if (printLog) println("checking: \"" + subTree("text").mkString(" ") + "\"")
+    if (printLog) println("checking: \"" + subTree.text.mkString(" ") + "\"")
     val query = "SELECT DISTINCT ?candidate WHERE {\n" + 
-      binaryPermutations(subTree("id").length).map(
+      binaryPermutations(subTree.length).map(
         candidatePerm => {
-          val forma: String = subTree("text").zipWithIndex.map(
+          val forma: String = subTree.text.zipWithIndex.map(
             i => {
               if (candidatePerm(i._2)) i._1.capitalize
               else i._1
             }).mkString(" ")
-          getWithLanguage("?candidate", forma, lang)
+          getWithLanguage("?candidate", forma, subTree.lang)
         }).mkString(" UNION ") + "\n}"
     return semantics.KGfunctions.querySelect(query).toArray
   }
 
 
-  def slidingWindow(tree: Map[String, Array[String]], lang: String): Array[QuerySolution] = {
+  def slidingWindow(tree: Sentence): Array[QuerySolution] = {
     // use a sliding window to map the TREE to find a topic entity
-    val textLength = tree("id").length
     var out = Array[QuerySolution]()
     var outScore = 0
     // from: http://universaldependencies.org/docs/u/pos/index.html
     val validPos: Array[String]  = Array("ADJ", "ADV", "INTJ", "NOUN", "PROPN", "VERB")
-    for (windowSize <- (1 to textLength).reverse;
-       i <- 0 to (textLength - windowSize)) {
+    for (windowSize <- (1 to tree.length).reverse;
+       i <- 0 to (tree.length - windowSize)) {
       // for each possible substring
-      val candidate: Map[String, Array[String]] = Map[String, Array[String]](
-        "id"   -> tree("id").slice(i, i + windowSize),
-        "dep"  -> tree("dep").slice(i, i + windowSize),
-        "text" -> tree("text").slice(i, i + windowSize))
-      if (windowSize > 1 || (windowSize == 1 && validPos.contains(tree("pos")(i)))) {
-        val entities = getEntities(candidate, lang).toArray
+      val candidate: Sentence = tree.getPortion((i, i + windowSize))
+      if (windowSize > 1 || (windowSize == 1 && validPos.contains(tree.pos(i)))) {
+        val entities = getEntities(candidate).toArray
         val candidateScore = getTreeMaxDepth(candidate, tree)
         if (! entities.isEmpty && outScore <= candidateScore) {
           if (printLog) println(s"Depth: ${candidateScore}\nCandidates: ${out.length}")
@@ -125,13 +125,10 @@ object NEE {
     }
     // if desperated, check for single lemmas
     if (out.isEmpty)
-      for (i <- 0 until textLength)
-        if (validPos.contains(tree("pos")(i))) {
-          val candidate: Map[String, Array[String]] = Map[String, Array[String]](
-            "id"   -> tree("id").slice(i, i + 1),
-            "dep"  -> tree("dep").slice(i, i + 1),
-            "text" -> tree("lemma").slice(i, i + 1))
-          val entities = getEntities(candidate, lang)
+      for (i <- 0 until tree.length)
+        if (validPos.contains(tree.pos(i))) {
+          val candidate = tree.getPortion(i, i + 1)
+          val entities = getEntities(candidate)
           if (! entities.isEmpty) {
             if (printLog) entities.foreach(println)
             return entities
@@ -139,7 +136,7 @@ object NEE {
         }
     if (printLog) {
       out.foreach(println)
-      print(s"(${out.length} candidates)")
+      println(s"(${out.length} candidates)")
     }
     return out
   }
