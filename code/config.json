@@ -1,5 +1,6 @@
 {
     "name": "Pitium",
+    "maximumWindow": 5,
     "printLog": "true",
     
     "HTTP_triplestore": {

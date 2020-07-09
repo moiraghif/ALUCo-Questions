@@ -26,7 +26,7 @@ object utils {
   }
 
   def isSubStringOf(substring: Sentence, string: Sentence): Boolean =
-    substring.filterNot(string.contains).isEmpty
+    substring.id.filterNot(string.id.contains).isEmpty
 
 
   def getTreeRoot(tree: Sentence): String = {
