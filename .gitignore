@@ -8,5 +8,5 @@ __pycache__
 
 
 # udipipe
-libudipipe_java.so
+*.so
 models
