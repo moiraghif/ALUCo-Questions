@@ -1,17 +1,24 @@
 package nlp
 
+
+import sys.process._  // TODO: remove
+import scala.io.Source
 import scala.collection.JavaConverters._
-import collection.mutable
 import scala.util.matching.Regex
+import collection.mutable
 
 import org.apache.tika.langdetect.OptimaizeLangDetector
 import cz.cuni.mff.ufal.udpipe.{
   Model,
   Pipeline }
 
+import jep._
+import jep.python._
+
 import main.utils._
 import main.constants._
 import semantics.NEE
+
 
 
 class Sentence(tree: Map[String, Array[String]], language: String) {
@@ -60,7 +67,9 @@ class Sentence(tree: Map[String, Array[String]], language: String) {
 
 }
 
-object Parser {
+
+
+class Parser {
 
   // the model used for each (supported) language
   val modelsList = getModelsPath()
@@ -116,7 +125,6 @@ object Parser {
     }
   }
 
-
   def getTree(text: String, language: String): Sentence = {
     // use a udipipe model to get a tree representation of a TEXT
     //
@@ -157,8 +165,28 @@ object Parser {
     val lang = getLanguage(text)
     val tree = getTree(text, lang)
     if (printLog) println(tree.toString)
-    for (s <- NEE.slidingWindow(tree))
-      println(s)
     return tree
+  }
+}
+
+
+
+class Encoder {
+
+  val python: SharedInterpreter = new SharedInterpreter()
+
+  println("Loading Language Model ...")
+  val wordembedding = Source.fromFile("src/main/python/wordembedding.py")
+  // python.exec(wordembedding.getLines.mkString("\n"))
+  // python.exec("def similarity(text1, text2): return 0.5")
+  wordembedding.close
+
+  def apply(candidate: String, substring: String): Double = {
+    // return python.getValue("similarity(\"" + candidate + "\", \"" + substring + "\")")
+    //   .toString
+    //   .toDouble
+    val command: String = "python src/main/python/wordembedding.py \"" + candidate + "\" \"" + substring + "\""
+    val out = command ! ProcessLogger(stdout append _, stderr append _)
+    return out.toString.toDouble
   }
 }

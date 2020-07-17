@@ -1,2 +1,12 @@
+# Scala/SBT
 *.class
 *.log
+
+
+# Python
+__pycache__
+
+
+# udipipe
+libudipipe_java.so
+models

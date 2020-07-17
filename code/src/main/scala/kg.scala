@@ -1,5 +1,6 @@
 package semantics
 
+
 import scala.util.matching.Regex
 import scala.collection.JavaConverters._
 
@@ -103,7 +104,7 @@ object NEE {
   }
 
 
-  def slidingWindow(tree: Sentence): Array[QuerySolution] = {
+  def apply(tree: Sentence): Array[QuerySolution] = {
     // use a sliding window to map the TREE to find a topic entity
     var checked = List[Sentence]()
     var out = Array[QuerySolution]()
