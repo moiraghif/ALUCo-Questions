@@ -4,8 +4,14 @@ package nlp
 import scala.io.Source
 import scala.collection.JavaConverters._
 import scala.util.matching.Regex
-import sys.process._
+// import java.util.ArrayList
+import scalaj.http.Http
+// import sys.process._
 import collection.mutable
+
+
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.message.BasicNameValuePair
 
 import org.apache.tika.langdetect.OptimaizeLangDetector
 import cz.cuni.mff.ufal.udpipe.{
@@ -170,8 +176,17 @@ object Parser {
 object Encoder {
 
   def apply(candidate: String, substring: String): Double = {
-    val out: String =  s"""python src/main/python/wordembedding.py "${candidate}" "${substring}" """.!!
-    return out.toDouble
+    val jsonIn: String = s"""{"sent1": "${candidate}", "sent2": "${substring}"}"""
+    val jsonOut = Http("http://localhost:8080/process")
+      .header("content-type", "application/json")
+      .postData(jsonIn)
+      .asString.toString
+    println(jsonOut)
+    val cosineRegex = "(?<=\\{\\\\\"cosine\\\\\":\\s\\\\\")([\\d\\.]+)(?=\\\\\"\\})".r
+    val sim = cosineRegex.findFirstIn(jsonOut).getOrElse("0")
+    // val sim = 0.1
+    println(sim)
+    return sim.toDouble
     // val python: SharedInterpreter = new SharedInterpreter()
     // val wordembedding = Source.fromFile("src/main/python/wordembedding.py")
     // python.exec(wordembedding.getLines.mkString("\n"))
