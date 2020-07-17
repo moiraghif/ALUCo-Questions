@@ -7,9 +7,9 @@ import nlp._
 
 object QASystem {
 
-  def apply(encoder: Encoder, parser: Parser, question: String): String = {
-    println(encoder(question, "hello world"))
-    val tree: Sentence = parser(question)
+  def apply(question: String): String = {
+    val tree: Sentence = Parser(question)
+    println(Encoder(question, "hello world"))
     // val topic: Array[QuerySolution] = NEE(tree)
     return "La risposta è: 42"
   }

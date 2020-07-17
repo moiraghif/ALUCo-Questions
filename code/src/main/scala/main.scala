@@ -1,7 +1,7 @@
 package main
 
 
-import nlp._
+import nlp.Parser
 import semantics.QASystem
 import semantics.KGfunctions._
 
@@ -11,8 +11,7 @@ import main.constants._
 
 object Main {
 
-  val encoder = new Encoder
-  val parser  = new Parser
+  // val parser  = new Parser
 
 
   def startShell(): Unit = {
@@ -20,7 +19,7 @@ object Main {
     while (true) {
       print(">> ")
       val text: String = readLine()
-      QASystem(encoder, parser, text)
+      QASystem(text)
     }
   }
 

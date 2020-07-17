@@ -1,10 +1,10 @@
 package nlp
 
 
-import sys.process._  // TODO: remove
 import scala.io.Source
 import scala.collection.JavaConverters._
 import scala.util.matching.Regex
+import sys.process._
 import collection.mutable
 
 import org.apache.tika.langdetect.OptimaizeLangDetector
@@ -12,12 +12,8 @@ import cz.cuni.mff.ufal.udpipe.{
   Model,
   Pipeline }
 
-import jep._
-import jep.python._
-
 import main.utils._
 import main.constants._
-import semantics.NEE
 
 
 
@@ -69,7 +65,7 @@ class Sentence(tree: Map[String, Array[String]], language: String) {
 
 
 
-class Parser {
+object Parser {
 
   // the model used for each (supported) language
   val modelsList = getModelsPath()
@@ -171,22 +167,21 @@ class Parser {
 
 
 
-class Encoder {
-
-  val python: SharedInterpreter = new SharedInterpreter()
-
-  println("Loading Language Model ...")
-  val wordembedding = Source.fromFile("src/main/python/wordembedding.py")
-  // python.exec(wordembedding.getLines.mkString("\n"))
-  // python.exec("def similarity(text1, text2): return 0.5")
-  wordembedding.close
+object Encoder {
 
   def apply(candidate: String, substring: String): Double = {
-    // return python.getValue("similarity(\"" + candidate + "\", \"" + substring + "\")")
+    val out: String =  s"""python src/main/python/wordembedding.py "${candidate}" "${substring}" """.!!
+    return out.toDouble
+    // val python: SharedInterpreter = new SharedInterpreter()
+    // val wordembedding = Source.fromFile("src/main/python/wordembedding.py")
+    // python.exec(wordembedding.getLines.mkString("\n"))
+    // wordembedding.close
+    // val out: Double = python
+    //   .getValue("similarity(\"" + candidate + "\", \"" + substring + "\")")
     //   .toString
     //   .toDouble
-    val command: String = "python src/main/python/wordembedding.py \"" + candidate + "\" \"" + substring + "\""
-    val out = command ! ProcessLogger(stdout append _, stderr append _)
-    return out.toString.toDouble
+    // python.close
+    // return out
   }
+
 }
