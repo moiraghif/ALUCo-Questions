@@ -34,7 +34,6 @@ object KGfunctions {
 
   def connectToKg(url: String)(query: String): QueryExecution = {
     val queryFull = queryPrefix + query
-    // if (printLog) println(queryFull)
     return QueryExecutionFactory.sparqlService(url, queryFull)
   }
 
@@ -104,11 +103,11 @@ object NEE {
   }
 
 
-  def apply(tree: Sentence): Array[QuerySolution] = {
+  def apply(tree: Sentence): Sentence = {
     // use a sliding window to map the TREE to find a topic entity
     var checked = List[Sentence]()
-    var out = Array[QuerySolution]()
-    var outScore = 0
+    var out: Sentence = tree
+    var outScore: Int = 0
     // from: http://universaldependencies.org/docs/u/pos/index.html
     val validPos: Array[String]  = Array("ADJ", "ADV", "INTJ", "NOUN", "PROPN", "VERB")
     for (windowSize <- (1 to Array[Int](tree.length - 1,
@@ -116,14 +115,14 @@ object NEE {
        i <- 0 to (tree.length - windowSize)) {
       // for each possible substring
       val candidate: Sentence = tree.getPortion((i, i + windowSize))
-      if (checked.filter(isSubStringOf(candidate, _)).isEmpty &&
+      if (! checked.exists(isSubStringOf(candidate, _)) &&
             (windowSize > 1 || (windowSize == 1 && validPos.contains(tree.pos(i))))) {
-        val entities = getEntities(candidate).toArray
+        val entities: Array[QuerySolution] = getEntities(candidate).toArray
         if (! entities.isEmpty) {
           checked = checked :+ candidate
           val candidateScore = getTreeMaxDepth(candidate, tree)
           if (outScore <= candidateScore) {
-            out = entities
+            out = new Sentence(candidate.tree, candidate.lang, entities)
             outScore = candidateScore
             if (printLog) println(s" - candidates: ${out.length}")
           }
@@ -131,16 +130,18 @@ object NEE {
       }
     }
     // if desperated, check for single lemmas
-    if (out.isEmpty)
+    if (checked.isEmpty) {
       for (i <- 0 until tree.length)
         if (validPos.contains(tree.pos(i))) {
           val candidate = tree.getPortion(i, i + 1)
           val entities = getEntities(candidate)
           if (! entities.isEmpty) {
             if (printLog) println(s" - candidates: ${entities.length}")
-            return entities
+            return new Sentence(candidate.tree, candidate.lang, entities)
           }
         }
+      return new Sentence(Map[String, Array[String]](), tree.lang, Array[QuerySolution]()) 
+    }
     return out
   }
 
