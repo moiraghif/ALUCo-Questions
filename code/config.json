@@ -10,7 +10,6 @@
         "latency":  0.1
     },
 
-    "bert": "bert-base-multilingual-cased",
     "udpipe": {
         "directory": "models",
         "models": {

@@ -17,13 +17,17 @@ import org.apache.tika.langdetect.OptimaizeLangDetector
 import cz.cuni.mff.ufal.udpipe.{
   Model,
   Pipeline }
+import org.apache.jena.query.QuerySolution
+
 
 import main.utils._
 import main.constants._
 
 
 
-class Sentence(tree: Map[String, Array[String]], language: String) {
+class Sentence(val tree: Map[String, Array[String]],
+               val lang: String,
+               val candidates: Array[QuerySolution] = Array[QuerySolution]()) {
   // this is just a data structure to store information about the sentence
   val id: Array[String]    = tree("id")
   val text: Array[String]  = tree("text")
@@ -33,7 +37,6 @@ class Sentence(tree: Map[String, Array[String]], language: String) {
   val dep: Array[String]   = tree("dep")
   val link: Array[String]  = tree("link")
 
-  val lang: String = language
   val length: Int = id.length
 
   val isValidTree: Boolean = isATree(this)
@@ -175,28 +178,19 @@ object Parser {
 
 object Encoder {
 
-  def apply(candidate: String, substring: String): Double = {
-    val jsonIn: String = s"""{"sent1": "${candidate}", "sent2": "${substring}"}"""
-    val jsonOut = Http("http://localhost:8080/process")
+  def apply(candidate: String,
+            substring: String,
+            sentence: String = ""): Double = {
+    val jsonIn: String = s"""{
+                             |  "sent1": "${candidate + sentence}",
+                             |  "sent2": "${substring + sentence}"
+                             |}""".stripMargin
+    val sim = Http("http://localhost:8080/cosine_similarity")
       .header("content-type", "application/json")
       .postData(jsonIn)
-      .asString.toString
-    println(jsonOut)
-    val cosineRegex = "(?<=\\{\\\\\"cosine\\\\\":\\s\\\\\")([\\d\\.]+)(?=\\\\\"\\})".r
-    val sim = cosineRegex.findFirstIn(jsonOut).getOrElse("0")
-    // val sim = 0.1
-    println(sim)
+      .asString
+      .body
     return sim.toDouble
-    // val python: SharedInterpreter = new SharedInterpreter()
-    // val wordembedding = Source.fromFile("src/main/python/wordembedding.py")
-    // python.exec(wordembedding.getLines.mkString("\n"))
-    // wordembedding.close
-    // val out: Double = python
-    //   .getValue("similarity(\"" + candidate + "\", \"" + substring + "\")")
-    //   .toString
-    //   .toDouble
-    // python.close
-    // return out
   }
 
 }
