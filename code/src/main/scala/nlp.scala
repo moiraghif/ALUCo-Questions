@@ -18,7 +18,8 @@ import cz.cuni.mff.ufal.udpipe.{
   Model,
   Pipeline }
 import org.apache.jena.query.QuerySolution
-
+import spray.json._
+import DefaultJsonProtocol._
 
 import main.utils._
 import main.constants._
@@ -178,19 +179,22 @@ object Parser {
 
 object Encoder {
 
-  def apply(candidate: String,
+  def apply(candidate: Array[String],
             substring: String,
-            sentence: String = ""): Double = {
+            sentence: String = ""): Map[String, Double] = {
     val jsonIn: String = s"""{
-                             |  "sent1": "${candidate + sentence}",
-                             |  "sent2": "${substring + sentence}"
-                             |}""".stripMargin
+                            |    "substring": "${substring}",
+                            |    "sentence": "${sentence}",
+                            |    "candidates": [""" + candidate.map(c => s""" "${c}" """).mkString(",") + "]}"
+      // candidate.map(c => s""" "${c + " " + sentence}": "" """ ).mkString(", ") +
+      // "]}"
+    println(jsonIn)
     val sim = Http("http://localhost:8080/cosine_similarity")
       .header("content-type", "application/json")
       .postData(jsonIn)
       .asString
       .body
-    return sim.toDouble
+    return sim.parseJson.convertTo[Map[String, Double]]
   }
 
 }

@@ -7,9 +7,50 @@ import org.apache.jena.query.QuerySolution
 import nlp._
 import semantics.NEE
 import main.utils._
+import semantics.KGfunctions._
+
+
+class SolutionGraph(val before: Sentence,
+                    val graph: String,
+                    val after: Sentence)
 
 
 object QASystem {
+
+  def getCandidates(uri: QuerySolution, variable: String): Array[QuerySolution] = {
+    val topic: String = "<" + uri.get("?" + variable).toString + ">"
+    val query = s"""SELECT DISTINCT ?candidate ?label WHERE {
+                    |  {          # relations
+                    |    ${topic}   ?candidate  ?x.
+                    |    ?candidate rdfs:label  ?label.
+                    |  } UNION {  # entities
+                    |    ${topic}   ?r          ?candidate.
+                    |    ?candidate rdfs:label  ?label.
+                    |  } UNION {  # classes
+                    |    ${topic}   ?r          ?x.
+                    |    ?x         rdf:isA     ?candidate.
+                    |    ?candidate rdfs:label  ?label.
+                    |  } UNION {  # predicates
+                    |    ${topic}   ?r1         ?x.
+                    |    ?x         ?r2         ?candidate.
+                    |    ?candidate rdfs:label  ?label.
+                    |  }
+                    |  FILTER(lang(?label) = "en")
+                    |}""".stripMargin
+    val candidates = querySelect(query)
+    return candidates.toArray
+  }
+
+  def filterCandidates(candidates: Array[QuerySolution], question: String): Double = {
+    val getLabel = (candidate: QuerySolution)=> {
+      val languageRegex = "@\\w{2}$".r
+      val rawString = candidate.get("?label").toString
+      languageRegex.replaceFirstIn(rawString, "")
+    }
+    Encoder(candidates.map(getLabel), "Titanic", "Leonardo Di Caprio")
+    return 0.5
+  }
+
 
   def uriToString(uri: QuerySolution, variable: String): String =
     uri.get("?" + variable).toString
@@ -36,10 +77,10 @@ object QASystem {
   def apply(question: String): String = {
     val tree: Sentence = Parser(question)
     val topic: Sentence = NEE(tree)
-    topic.candidates.foreach(topicCandidate => {
-                               val candidate = uriToString(topicCandidate, "candidate")
-                               println(candidate + ": " + Encoder("Titanic", candidate, question))
-                             })
+    // topic.candidates.foreach(topicCandidate => {
+    //                            val candidate = uriToString(topicCandidate, "candidate")
+    //                            println(candidate + ": " + Encoder("Titanic", candidate, question))
+    //                          })
     return "La risposta è: 42"
   }
 
