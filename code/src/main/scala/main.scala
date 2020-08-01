@@ -9,9 +9,13 @@ object Main {
 
   def startShell(): Unit = {
     // start a shell interface to the main program
+    QASystem("Who is the director of Titanic with Leonardo DiCaprio ?")
+    return
     while (true) {
       print(">> ")
-      QASystem(StdIn.readLine())
+      val text = StdIn.readLine().trim
+      if (text == ":exit") return
+      else QASystem(text)
     }
   }
 

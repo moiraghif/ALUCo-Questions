@@ -15,19 +15,20 @@ import main.constants._
 
 
 
-class SentenceNode(val sentence: Sentence)
-class RDFtranslation(sentence: Sentence, val rdf: RDFNode) extends SentenceNode(sentence)
+class SentenceNode(val sentence: Sentence) {
+  override def toString(): String = sentence.sentence
+}
+class RDFtranslation(sentence: Sentence, val rdf: RDFNode) extends SentenceNode(sentence) {
+  override def toString(): String = s"<$rdf>"
+}
 
+
+class SolutionGraph(val graph: Graph[SentenceNode, DiEdge], val score: Double) {
+  def apply(): Array[SolutionGraph] = ???
+}
 
 
 object QASystem {
-
-  class SolutionGraph(val graph: Graph[SentenceNode, DiEdge], val score: Double, val remainingSentence: Sentence) {
-    def apply(): Array[SolutionGraph] = {
-      val subTrees = splitIntoSubtrees(remainingSentence) 
-      return Array[SolutionGraph]()
-    }
-  }
 
   def expandGraph(node: RDFNode, out: Boolean): Array[QuerySolution] = {
     /**
@@ -70,16 +71,16 @@ object QASystem {
     exploreTreeUp(tree, topic)
 
 
-  def apply(question_test: String): String = {
-    val question = "Who is the director of Titanic with Leonardo DiCaprio ?"
+  def apply(question: String): String = {
     val tree: Sentence = Parser(question)
-    val topics: Array[RDFtranslation] = NEE(tree)
-    val graphs: Array[SolutionGraph] = topics.map(
-      t => {
-        val graph: Graph[SentenceNode, DiEdge] = Graph(t)
-        val sentenceWithoutTopic = tree.remove(t.sentence)
-        new SolutionGraph(graph, 1.0, sentenceWithoutTopic)
-      })
+    val topics: Array[NEE.NLPGraph] = NEE(tree)
+    topics.foreach(println)
+    // val graphs: Array[SolutionGraph] = topics.map(
+    //   t => {
+    //     val graph: Graph[SentenceNode, DiEdge] = Graph(t)
+    //     val sentenceWithoutTopic = tree.remove(t.sentence)
+    //     new SolutionGraph(graph, 1.0, tree, sentenceWithoutTopic)
+    //   })
     return "42"
   }
 

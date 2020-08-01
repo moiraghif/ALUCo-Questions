@@ -13,6 +13,10 @@ import org.apache.jena.query.{
   QueryExecutionFactory,
   QuerySolution }
 
+import scalax.collection.Graph
+import scalax.collection.GraphEdge.DiEdge
+import scalax.collection.GraphPredef._
+
 
 import main.constants._
 import main.utils._
@@ -85,6 +89,18 @@ object Lexicalization {
     return languageRegex.replaceFirstIn(label.toString, "")
   }
 
+  def cleanText(text: String): String = {
+    ( (out: String) => "\\([^)]+\\)".r.replaceAllIn(out, " ")).andThen(
+      (out: String) => "\"".r.replaceAllIn(out, " ")).andThen(
+      (out: String) => "\\\\".r.replaceAllIn(out, " ")).andThen(
+      (out: String) => ":".r.replaceAllIn(out, " ")).andThen(
+      (out: String) => "_".r.replaceAllIn(out, " ")).andThen(
+      (out: String) => "([a-z])([A-Z])".r.replaceAllIn(out, "$1 $2")).andThen(
+      (out: String) => "\\s+".r.replaceAllIn(out, " "))
+      (text).trim
+  }
+
+
   def filterLanguage(label: RDFNode, language: String): Boolean = {
     /**
      * check if a LABEL is in the desired LANGUAGE (if specified); if not
@@ -97,35 +113,73 @@ object Lexicalization {
     return lang == "@" + language 
   }
 
-  def apply(node: QuerySolution, variable: String, language: String): String = {
+  def apply(node: RDFNode, language: String): String = {
     /**
      * translate a result into text: translate a NODE into a string taking
      * either the (cleaned) label, if available, or trying a lexicalization from
      * the URI 
      */
-    val labelQuery = s"""SELECT DISTINCT ?label WHERE {
-                        |  <${node.get("?" + variable)}>  rdfs:label  ?label
+     val labelQuery = s"""SELECT DISTINCT ?label WHERE {
+                        |  <$node>  rdfs:label  ?label
                         |}""".stripMargin
     val labels = KG(labelQuery).toArray.filter(
       s => filterLanguage(s.get("?label"), language))
+    if (labels.isEmpty) return cleanText(cleanUri(node))
     val label = labels.head.get("?label")
-    var out = label match {
+    val out = label match {
       case null => cleanLabel(label)
-      case _    => cleanUri(node.get("?" + variable))
+      case _    => cleanUri(node)
     }
-    out = "\\([^)]+\\)".r.replaceAllIn(out, " ")         // remove parenthesis
-    out = "\"".r.replaceAllIn(out, " ")                  // remove quotes
-    out = "\\\\".r.replaceAllIn(out, " ")                // remove slashes
-    out = ":".r.replaceAllIn(out, " ")                   // remove double points
-    out = "_".r.replaceAllIn(out, " ")                   // remove underscores
-    out = "([a-z])([A-Z])".r.replaceAllIn(out, "$1 $2")  // camel case
-    out = "\\s+".r.replaceAllIn(out, " ")                // remove multiple spaces
-    return out.trim                                      // remove superflous spaces
+    return cleanText(out)
   }
+  def apply(node: QuerySolution, variable: String, language: String): String = apply(node.get(s"?$variable"), language)
 }
 
 
 object NEE {
+
+  class NLPGraph(val graph: Graph[SentenceNode, DiEdge]) {
+    def getNodes(): List[SentenceNode] = graph.nodes.toList.map(_.toOuter)
+
+    override def toString(): String = {
+      val nodes = getNodes()
+      val nodesSorted = nodes.sortBy(n => n.sentence.id.head.toInt)
+      return nodesSorted.map(_.toString).mkString(" ")
+    }
+  }
+
+  def sentenceToGraph(sentences: Map[Sentence, Array[RDFNode]]): Array[NLPGraph] = {
+    /**
+     * transform the sentence into a graph
+     */
+    val nodesList: List[List[SentenceNode]] = sentences.map(
+        kv => {
+          val sentence = kv._1
+          val candidates = kv._2
+          candidates.map(c => new RDFtranslation(sentence, c)).toList :+
+            (new SentenceNode(sentence))
+        }).toList
+
+    def createGraph(nodes: Array[SentenceNode]): NLPGraph = {
+      val getNode = (id: String) => nodes.filter(n => n.sentence.id.head == id)
+
+      def getEdges(toProcess: Array[SentenceNode], acc: Array[DiEdge[SentenceNode]] = Array[DiEdge[SentenceNode]]()): Array[DiEdge[SentenceNode]] = {
+        if (toProcess.isEmpty) return acc
+        val head = getNode(toProcess.head.sentence.dep.head)
+        val current = getNode(toProcess.head.sentence.id.head)
+        if (! head.isEmpty || ! current.isEmpty) return getEdges(toProcess.tail, acc)
+        return getEdges(toProcess.tail, acc :+ DiEdge(head.head, current.head))
+      }
+
+      return new NLPGraph(Graph.from(nodes, getEdges(nodes)))
+    }
+    def cartesianProduct[T](list: Seq[Seq[T]]): Seq[Seq[T]] = list match {
+      case Nil => Seq(Nil)
+      case h :: t => for(xh <- h; xt <- cartesianProduct(t)) yield xh +: xt
+    }
+    return cartesianProduct(nodesList).map(n => createGraph(n.toArray)).toArray
+  }
+
 
   def getWithLanguage(variable: String, label: String, lang: String): String =
     /**
@@ -164,53 +218,42 @@ object NEE {
   }
 
 
-  def apply(tree: Sentence): Array[RDFtranslation] = {
+  def slidingWindow(tree: Sentence, maxSize: Int = getConfig("maximumWindow").toInt): Map[Sentence, Array[RDFNode]] = {
     /**
-     * the main function: analyze the dependency TREE in order to find a topic
-     * entity; the used algorithm is a sliding window that checks if the
-     * sub-tree (rebuilt as a sentence appears as a label in the KG)
-     * The returned Sentence is the deeper candidate found
+     * use a sliding window to get a set of candiadtes for a TREE; window size
+     * can be set with the parameter MAXSIZE
      */
-    var checked = List[Sentence]()
-    var out: Array[RDFtranslation] = Array[RDFtranslation]()
-    var outScore: Int = 0
-
-    // use the sliding window
-    for (windowSize <- (1 to Array[Int](tree.length - 1,
-                                    getConfig("maximumWindow").toInt).min).reverse;
-       i <- 0 to (tree.length - windowSize)) { // for each possible substring
-
+    var sentenceTree = scala.collection.mutable.Map[Sentence, Array[RDFNode]]()
+    for (windowSize <- (1 to math.min(tree.length - 1, maxSize)).reverse;
+       i <- 0 to (tree.length - windowSize)) {
       val candidate: Sentence = tree.getPortion((i, i + windowSize))
-      if (! checked.exists(isSubStringOf(candidate, _)) &&
-            (windowSize > 1 || (windowSize == 1 &&
-                                 POS.openClassPOS(tree.pos(i))))) {
-        val entities: Array[QuerySolution] = getEntities(candidate).toArray
-        if (! entities.isEmpty) {
-          checked = checked :+ candidate
-          val candidateScore = getTreeMaxDepth(candidate, tree)
-          if (outScore <= candidateScore) {
-            out = entities.map(e => new RDFtranslation(candidate, e.get("?topic")))
-            outScore = candidateScore
-            if (printLog()) println(s" - candidates: ${out.length}")
-          }
-        }
-      }
-    }
-
-    // if desperated, check for single lemmas
-    if (checked.isEmpty) {
-      for (i <- 0 until tree.length)
-        if (POS.openClassPOS(tree.pos(i))) {
-          val candidate = tree.getPortion(i, i + 1)
-          val entities = getEntities(candidate).toArray
+      if (! sentenceTree.keySet.exists(isSubStringOf(candidate, _)))
+        if (windowSize > 1 || (windowSize == 1 && POS.openClassPOS(tree.pos(i)))) {
+          val entities: Array[QuerySolution] = getEntities(candidate)
           if (! entities.isEmpty) {
-            if (printLog()) println(s" - candidates: ${entities.length}")
-            return entities.map(e => new RDFtranslation(candidate, e.get("?topic")))
+            val topics = entities.map(e => e.get("?topic")).toArray
+            if (printLog())
+              println(s"${candidate.sentence}: ${topics.length}")
+            sentenceTree += (candidate -> topics)
           }
-        }
-      return Array[RDFtranslation]()
+        } else if (windowSize == 1) sentenceTree += (candidate -> Array[RDFNode]())
     }
-    return out
+    if (printLog()) {
+      println("\n")
+      sentenceTree.foreach(i =>
+        if (i._2.isEmpty) println(s"${i._1.sentence}")
+        else println(s"${i._1.sentence}: \n" + i._2.map(i => s" - $i").mkString("\n")))
+    }
+    return sentenceTree.toMap
+  }
+
+  def apply(tree: Sentence): Array[NLPGraph] = {
+    /**
+     * return the TREE annotated with some semantics nodes
+     */
+    val sentenceTree = slidingWindow(tree)
+    val graphs = sentenceToGraph(sentenceTree)
+    return graphs
   }
 
 }
