@@ -2,13 +2,10 @@ package nlp
 
 
 import scala.io.Source
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.util.matching.Regex
-// import java.util.ArrayList
 import scalaj.http.Http
-// import sys.process._
 import collection.mutable
-
 
 import org.apache.http.client.methods.HttpPost
 import org.apache.http.message.BasicNameValuePair
@@ -23,13 +20,14 @@ import DefaultJsonProtocol._
 
 import main.utils._
 import main.constants._
+import semantics.RDFtranslation
 
 
-
-class Sentence(val tree: Map[String, Array[String]],
-               val lang: String,
-               val candidates: Array[QuerySolution] = Array[QuerySolution]()) {
-  // this is just a data structure to store information about the sentence
+class Sentence(tree: Map[String, Array[String]], val lang: String) {
+  /**
+   * This data structure stores information about the sentence and permits to
+   * easily extract a sub-tree from it
+   */
   val id: Array[String]    = tree("id")
   val text: Array[String]  = tree("text")
   val lemma: Array[String] = tree("lemma")
@@ -38,25 +36,50 @@ class Sentence(val tree: Map[String, Array[String]],
   val dep: Array[String]   = tree("dep")
   val link: Array[String]  = tree("link")
 
-  val length: Int = id.length
+  val sentence: String = text.mkString(" ")
 
+  val length: Int = id.length
   val isValidTree: Boolean = isATree(this)
 
-  def getPortion(portion: (Int, Int)): Sentence =
+
+  def get(index: Array[Int]): Sentence =
+    /**
+     * get a portion of sentence according to a INDEX
+     */
     new Sentence(
       Map[String, Array[String]](
-        "id"    -> id.slice(portion._1,    portion._2),
-        "text"  -> text.slice(portion._1,  portion._2),
-        "lemma" -> lemma.slice(portion._1, portion._2),
-        "pos"   -> pos.slice(portion._1,   portion._2),
-        "flex"  -> flex.slice(portion._1,  portion._2),
-        "dep"   -> dep.slice(portion._1,   portion._2),
-        "link"  -> link.slice(portion._1,  portion._2)),
+        "id"    -> index.map(id),
+        "text"  -> index.map(text),
+        "lemma" -> index.map(lemma),
+        "pos"   -> index.map(pos),
+        "flex"  -> index.map(flex),
+        "dep"   -> index.map(dep),
+        "link"  -> index.map(link)),
       lang)
+  def get(index: Array[String]): Sentence = get(index.map(i => id.indexOf(i)))
+  def getPortion(portion: (Int, Int)): Sentence = get((portion._1 until portion._2).toArray)
+  def remove(index: Array[Int]): Sentence = get((0 until length).toArray.filter(! index.contains(_)))
+  def remove(index: Array[String]): Sentence = remove(index.map(id.indexOf(_)))
+  def remove(sentence: Sentence): Sentence = remove(sentence.id)
 
+
+  def getTree(): Map[String, Array[String]] =
+    /**
+     * returns a copy of the tree of the sentence
+     */
+    Map[String, Array[String]](
+      "id"    -> id,
+      "text"  -> text,
+      "lemma" -> lemma,
+      "pos"   -> pos,
+      "flex"  -> flex,
+      "dep"   -> dep,
+      "link"  -> link)
 
   override def toString(): String = {
-    // just print the table
+    /**
+     * print the Sentence as a table
+     */
     val columns: Array[Array[String]] = Array(id, text, lemma, pos, flex, dep, link)
     val lengthMax = columns.map(c => c.map(r => r.length).max)
     val rows: Int = length
@@ -83,6 +106,9 @@ object Parser {
 
 
   def getModelsPath(): Map[String, String] = {
+    /**
+     * get the path for each model 
+     */
     val path: String = getConfig("udpipe.directory")
     return getConfig("udpipe.models")
       // get all the models
@@ -106,23 +132,30 @@ object Parser {
   }
 
   def getLanguage(text: String): String = {
-    // get the language of a piece of TEXT, the result is in ISO-639 format
-    // (https://www.loc.gov/standards/iso639-2/php/code_list.php)
+    /**
+     * get the language of a TEXT (the result is in ISO-639 format)
+     * https://www.loc.gov/standards/iso639-2/php/code_list.php
+     */
     val detector = new OptimaizeLangDetector().loadModels(modelsList.keySet.asJava)
     val out = detector.detect(text)
-    if (printLog) println(out.getLanguage() + ": " + out.getRawScore() + "")
+    if (printLog()) println(out.getLanguage() + ": " + out.getRawScore() + "")
     return out.getLanguage()
   }
 
   def loadModel(language: String): Model = {
-    // select the udpipe model for a specific LANGUAGE
+    /**
+     * select the right udpipe model for the LANGUAGE
+     */
     val model = modelsList(language)
-    if (printLog) println("Loading model: " + model + " ...")
+    if (printLog()) println("Loading model: " + model + " ...")
     return Model.load(model) 
   }
 
   def getLazyModel(models: Map[String, String]): (String) => Model = {
-    // get lazily a model from a list of MODELS for a specific LANGUAGE
+    /**
+     * get lazily the models from a list of MODELS (annotated with language)
+     * loading each one only when needed
+     */
     var loadedModels = mutable.Map[String, Model]()
     return (language: String) => {
       if (! loadedModels.contains(language))
@@ -132,15 +165,15 @@ object Parser {
   }
 
   def getTree(text: String, language: String): Sentence = {
-    // use a udipipe model to get a tree representation of a TEXT
-    //
-    // load the model for the specific language
-    val pipeline = new Pipeline(models(language),
+    /**
+     * use a udpipe model to get a tree representation for a TEXT in a specified LANGUAGE
+     */
+    val pipeline = new Pipeline(models(language),  // load the model for the specific language
                                 "horizontal",
                                 Pipeline.getDEFAULT(),
                                 Pipeline.getDEFAULT(),
                                 "conllu")
-    // parse the sentence and parse the output
+    // parse the sentence and then parse the output
     val parsed_sent: String = pipeline.process(text)
     val isComment = (line: String) => line matches "^#.*|"
     // the output is stored as a table, where column DEP represent the
@@ -167,34 +200,88 @@ object Parser {
   }
 
   def apply(text: String): Sentence = {
-    // one function to rule all: it takes a TEXT and returns the parsed sentences
+    /**
+     * get a Sentence representation for the desired TEXT
+     */
     val lang = getLanguage(text)
     val tree = getTree(text, lang)
-    if (printLog) println(tree.toString)
+    if (printLog()) println(tree.toString)
     return tree
   }
 }
 
 
+object POS {
+  /**
+   * a more linguistic part
+   */
+  // from: http://universaldependencies.org/docs/u/pos/index.html
+  val openPOS: Array[String]  = Array("ADJ", "ADV", "INTJ", "NOUN", "PROPN", "VERB")
+
+  def openClassPOS(pos: String): Boolean = openPOS.contains(pos)
+  def closedClassPOS(pos: String): Boolean = ! openClassPOS(pos)
+}
+
 
 object Encoder {
-
-  def apply(candidate: Array[String],
-            substring: String,
-            sentence: String = ""): Map[String, Double] = {
+  /**
+   * make a REST request to a BERT server to get cosine similarity between a
+   * piece of text and a list of candidates, eventually with a string to
+   * contextualize the meaning (so that the attention mechanism works does a
+   * better job)
+   */
+  def getScores(candidate: Array[Sentence],
+              substring: String,
+              sentence: String = ""): Map[Sentence, Double] = {
+    /**
+     * get the scores
+     */
     val jsonIn: String = s"""{
                             |    "substring": "${substring}",
                             |    "sentence": "${sentence}",
-                            |    "candidates": [""" + candidate.map(c => s""" "${c}" """).mkString(",") + "]}"
-      // candidate.map(c => s""" "${c + " " + sentence}": "" """ ).mkString(", ") +
-      // "]}"
-    println(jsonIn)
-    val sim = Http("http://localhost:8080/cosine_similarity")
+                            |    "candidates": """.stripMargin +
+      "[" + candidate.map(c => s""" "${c.toString}" """).mkString(",") + "]\n}"
+    /* e.g. of input
+     * {
+     *   "substring": "substring to compare",
+     *   "sentence": "a sentence to contextualize the substring",
+     *   "candidates": [ "list", "of", "candidates" ]
+     * }
+     */
+    val request = Http("http://localhost:8080/cosine_similarity")
+      .timeout(connTimeoutMs = 60 * 1000, readTimeoutMs = 5 * 60 * 1000)
       .header("content-type", "application/json")
       .postData(jsonIn)
       .asString
       .body
-    return sim.parseJson.convertTo[Map[String, Double]]
+    try {
+      val sim = request
+        .parseJson
+        .convertTo[Map[String, Double]]
+      val scores: Array[(Sentence, Double)] = candidate.map(c =>
+        (c, sim.getOrElse(c.toString, -1.toDouble)))
+      return scores.toMap
+    } catch {
+      case e: Throwable => {
+        println("Exception occurred! server log:")
+        println(request.toString)
+        return candidate.map(c => (c -> -999.toDouble)).toMap
+      }
+    }
   }
 
+  def apply(candidate: Array[Sentence],
+          topic: Sentence,
+          relation: String,
+          softmax: Boolean = false): Array[(Sentence, Double)] = {
+    /**
+     * if desired, return the results using the SOFTMAX function
+     */
+    val scores = getScores(candidate, relation).toArray
+    if (softmax) {
+      val scoresSum = scores.map(s => math.exp(s._2)).sum
+      return scores.map(s => (s._1, math.exp(s._2) / scoresSum)).sortBy(_._2)
+    }
+    return  scores.sortBy(_._2)
+  }
 }

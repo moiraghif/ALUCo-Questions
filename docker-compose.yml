@@ -2,17 +2,32 @@ version: "3.3"
 
 services:
 
-  tdb:
+  # it addes a Fuseki server
+  # tdb:
     # Triple-store DataBase
-    build: ./tdb
-    ports:
-      - 3030:3030
+    # build: ./tdb
+    # ports:
+    #   - 3030:3030
     # volumes:
     #   - ./tdb/data:/fuseki/data
 
-  # pitium:
-  #   build: ./pitium
-  #   volumes:
-  #     - ./code:/pitium
-  #   depends_on:
-  #     - tdb
+  # the Python REST server to use BERT
+  bert_rest:
+    build: ./bert_rest
+    ports:
+      - 8080:8080
+
+  # the main QA system
+  qa_system:
+    build: ./qa_system
+    volumes:
+      - "./code/src:/app/src"
+      - "./code/build.sbt:/app/build.sbt"
+      - "./code/config.json:/app/config.json"
+    # working_dir: /app
+    tty: true
+    stdin_open: true
+    entrypoint: "bash"
+    depends_on:
+      - bert_rest
+      # - tdb

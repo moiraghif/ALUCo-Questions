@@ -1,0 +1,6 @@
+## BERT
+torch >= 1.5
+transformers >= 3.0
+
+## REST server
+cherrypy >= 18.6

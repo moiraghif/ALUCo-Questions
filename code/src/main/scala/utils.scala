@@ -65,4 +65,22 @@ object utils {
       .filter(subtree.id.contains(_))
       .map(getElemDepth(_, tree))
       .min
+
+  def splitIntoSubtrees(tree: Sentence): Array[Sentence] = {
+    if (tree.isValidTree) return Array[Sentence](tree)
+    def hasAsHead(pos: Int): String = {
+      val head = tree.id.indexOf(tree.dep(pos))
+      if (head == -1) return tree.id(pos)
+      return hasAsHead(head)
+    }
+    val heads = (0 until tree.length).map(hasAsHead)
+    return heads.toSet.toArray.map(
+      h => {
+        val index = (0 until tree.length).filter(i => heads(i) == h)
+        tree.get(index.toArray)
+      })
+    // val pos = heads.toSet.toArray.map(h => heads.indexOf(h)) :+ heads.length
+    // val positions = (0 until (pos.length - 1)).map(i => (pos(i), pos(i + 1)))
+    // return positions.map(tree.getPortion).toArray
+  }
 }

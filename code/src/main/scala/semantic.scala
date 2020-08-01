@@ -2,87 +2,96 @@ package semantics
 
 
 import org.apache.jena.query.QuerySolution
+import org.apache.jena.rdf.model.RDFNode
+
+import scalax.collection.Graph
+import scalax.collection.GraphEdge.DiEdge
+import scalax.collection.GraphPredef._
 
 
 import nlp._
-import semantics.NEE
 import main.utils._
-import semantics.KGfunctions._
+import main.constants._
 
 
-class SolutionGraph(val before: Sentence,
-                    val graph: String,
-                    val after: Sentence)
+
+class SentenceNode(val sentence: Sentence)
+class RDFtranslation(sentence: Sentence, val rdf: RDFNode) extends SentenceNode(sentence)
+
 
 
 object QASystem {
 
-  def getCandidates(uri: QuerySolution, variable: String): Array[QuerySolution] = {
-    val topic: String = "<" + uri.get("?" + variable).toString + ">"
-    val query = s"""SELECT DISTINCT ?candidate ?label WHERE {
-                    |  {          # relations
-                    |    ${topic}   ?candidate  ?x.
-                    |    ?candidate rdfs:label  ?label.
-                    |  } UNION {  # entities
-                    |    ${topic}   ?r          ?candidate.
-                    |    ?candidate rdfs:label  ?label.
-                    |  } UNION {  # classes
-                    |    ${topic}   ?r          ?x.
-                    |    ?x         rdf:isA     ?candidate.
-                    |    ?candidate rdfs:label  ?label.
-                    |  } UNION {  # predicates
-                    |    ${topic}   ?r1         ?x.
-                    |    ?x         ?r2         ?candidate.
-                    |    ?candidate rdfs:label  ?label.
-                    |  }
-                    |  FILTER(lang(?label) = "en")
-                    |}""".stripMargin
-    val candidates = querySelect(query)
-    return candidates.toArray
-  }
-
-  def filterCandidates(candidates: Array[QuerySolution], question: String): Double = {
-    val getLabel = (candidate: QuerySolution)=> {
-      val languageRegex = "@\\w{2}$".r
-      val rawString = candidate.get("?label").toString
-      languageRegex.replaceFirstIn(rawString, "")
+  class SolutionGraph(val graph: Graph[SentenceNode, DiEdge], val score: Double, val remainingSentence: Sentence) {
+    def apply(): Array[SolutionGraph] = {
+      val subTrees = splitIntoSubtrees(remainingSentence) 
+      return Array[SolutionGraph]()
     }
-    Encoder(candidates.map(getLabel), "Titanic", "Leonardo Di Caprio")
-    return 0.5
   }
 
+  def expandGraph(node: RDFNode, out: Boolean): Array[QuerySolution] = {
+    /**
+     * expand the graph starting from a NODE in either directions in or OUT
+     */
+    val queryDirection = out match {
+      case true => s"<$node>  ?relation  ?object"
+      case _ => s"?object  ?relation  <$node>"
+    }
+    val query = s"""SELECT ?relation  ?object  ?class
+                   |WHERE {
+                   |  $queryDirection .
+                   |  OPTIONAL { ?object  a  ?class . }
+                   |}""".stripMargin
+    return KG(query).toArray
+  }
+  def expandGraph(topic: RDFtranslation, out: Boolean): Array[QuerySolution] =
+    expandGraph(topic.rdf, out)
 
-  def uriToString(uri: QuerySolution, variable: String): String =
-    uri.get("?" + variable).toString
 
-  def exploreRelations(tree: Sentence, topic: Sentence): List[String] = {
-    val headQuestion = getTreeRoot(tree)
+  def exploreTreeUp(tree: Sentence, topic: Sentence): Array[Sentence] = {
+    /**
+     * get a list of candidates for the next step, starting from a TOPIC going up in the TREE
+     */
+    val headQuestion = getTreeRoot(tree).toInt - 1
     val headTopic = getTreeRoot(topic)
-    val headTopicPosition = tree.id.indexOf(headTopic)
-    def getNext(acc: List[String]): List[String] = {
-      if (acc.last == headQuestion) return acc
-      return getNext(acc :+ tree.dep(acc.last.toInt - 1)) 
+    val headTopicPosition = headTopic.toInt - 1 
+
+    def getNext(position: Int, acc: Array[Sentence]): Array[Sentence] = {
+      val head = tree.dep(position).toInt - 1
+      if (head == headQuestion) return acc :+ tree.getPortion((head, headTopicPosition))
+      getNext(head, acc :+ tree.getPortion((head, headTopicPosition)))
     }
-    val subTrees = getNext(List[String](tree.dep(headTopicPosition)))
-    val candidates = tree.text(subTrees.head.toInt - 1) +: subTrees.tail.map(
-      t => {
-        val p0 = subTrees(0).toInt - 1
-        val p1 = t.toInt - 1
-        if (p0 < p1) tree.text.slice(p0, p1 + 1).mkString(" ")
-        else         tree.text.slice(p1, p0 + 1).mkString(" ")
-      })
-    return candidates
+    return getNext(headTopicPosition, Array[Sentence]())
   }
 
-  def apply(question: String): String = {
+  def exploreTreeDown(tree: Sentence, topic: Sentence): Array[Sentence] = ???
+
+  def exploreTree(tree: Sentence, topic: Sentence): Array[Sentence] =
+    exploreTreeUp(tree, topic)
+
+
+  def apply(question_test: String): String = {
+    val question = "Who is the director of Titanic with Leonardo DiCaprio ?"
     val tree: Sentence = Parser(question)
-    val topic: Sentence = NEE(tree)
-    // topic.candidates.foreach(topicCandidate => {
-    //                            val candidate = uriToString(topicCandidate, "candidate")
-    //                            println(candidate + ": " + Encoder("Titanic", candidate, question))
-    //                          })
-    return "La risposta è: 42"
+    val topics: Array[RDFtranslation] = NEE(tree)
+    val graphs: Array[SolutionGraph] = topics.map(
+      t => {
+        val graph: Graph[SentenceNode, DiEdge] = Graph(t)
+        val sentenceWithoutTopic = tree.remove(t.sentence)
+        new SolutionGraph(graph, 1.0, sentenceWithoutTopic)
+      })
+    return "42"
   }
 
+}
+
+
+object Match {
+
+  def isInCandidate(candidate: Sentence, topic: Sentence): Boolean =
+    isSubStringOf(topic, candidate)
+
+  def apply(candidates: Array[Sentence], topic: Sentence): Unit = {
+  }
 
 }

@@ -10,7 +10,9 @@ object constants {
   val configFile = "config.json"
 
   def getConfig(field: String): String = {
-
+    /**
+     * read a FIELD of the config json file
+     */
     def readJSON(f: Array[String], json: String): String = {
       val clean = (w: String) => "(?<=^\").+(?=\"$)".r
         .findFirstIn(w)
@@ -22,7 +24,7 @@ object constants {
     }
 
     val configs = Source.fromFile(configFile)
-      .getLines.mkString
+      .getLines().mkString
     val fields = field.split("\\.")
     return readJSON(fields, configs)
   }
@@ -32,8 +34,6 @@ object constants {
 
 
   def getServerURL: String = {
-    // just get the clean URL of the server
-    // (example): http://localhost:3030/QAsystem
     val clean = (w: String) =>
       if (s"${w.last}" == "/") w.substring(0, w.length - 1)
       else w
@@ -42,8 +42,6 @@ object constants {
     return s"$serverURL/$serverName"
   }
 
-  def printLog(): Boolean = {
-    return getConfig("printLog") == "true"
-  }
+  def printLog(): Boolean = getConfig("printLog") == "true"
 
 }

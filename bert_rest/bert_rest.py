@@ -35,28 +35,32 @@ class BertServer:
         #     "of": score(of)
         #     "candidates": score(candidates)
         # }
-        whole_data = cherrypy.request.json
+        data = cherrypy.request.json
         # the sentence is extracted from the json
-        sentence = whole_data["substring"] + " " + whole_data["sentence"]
+        sentence = data["substring"] + " " + data["sentence"]
         sentence_encoded = self.get_encoding(
-            torch.tensor([self.tokenizer.encode(sentence)]))[0, :]
+            torch.tensor([self.get_tokens(sentence)[0]]))[0, :]
         # data is grouped by length
-        data = whole_data["candidates"]
         grouped_data = dict()
-        for sent in data:
-            t = self.tokenizer.encode(sent + " " + whole_data["sentence"])
-            l = len(t)
+        for sent in data["candidates"]:
+            t, l = self.get_tokens(sent + " " + data["sentence"])
             if l not in grouped_data.keys():
                 grouped_data[l] = list()
             grouped_data[l].append((sent, t))
+        # then data is passed to the NN in batch according to their size
+        del data
         out = dict()
         for k, v in grouped_data.items():
             matrix = torch.tensor(list(map(lambda e: e[1],
                                            v)))
             embeddings = self.get_encoding(matrix)
+            del matrix
             for i, (sent, _) in enumerate(v):
                 out[sent] = cos_sim(embeddings[i, :],
                                     sentence_encoded)
+            del embeddings
+        del sentence_encoded
+        del grouped_data
         return out
 
     def get_encoding(self, tokens):
@@ -65,6 +69,11 @@ class BertServer:
         # the embedding of the sentence is [CLS] token (101)
         # that is in position 0 [:, 0, :]
         return embeddings[:, 0, :]
+
+    def get_tokens(self, sent):
+        "returns the list of tokens for a SENT and its length"
+        tokens = self.tokenizer.encode(sent)
+        return (tokens, len(tokens))
 
     def __init__(self):
         # https://www.aclweb.org/anthology/S17-2001/
