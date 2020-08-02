@@ -24,7 +24,6 @@ import nlp.{
   Parser,
   POS,
   Sentence }
-// import semantics.RDFtranslation
 
 
 object KG {
@@ -146,6 +145,16 @@ object NEE {
       val nodesSorted = nodes.sortBy(n => n.sentence.id.head.toInt)
       return nodesSorted.map(_.toString).mkString(" ")
     }
+
+    def getHead(startNode: graph.NodeT = graph.nodes.head): graph.NodeT = {
+      val nextNode = startNode.edges.head._1
+      if (startNode == nextNode) return nextNode
+      return getHead(nextNode)
+    }
+
+    def getNode(s: Sentence): List[graph.NodeT] = {
+      graph.nodes.toList.filter(n => n.toOuter.sentence == s)
+    }
   }
 
   def sentenceToGraph(sentences: Map[Sentence, Array[RDFNode]]): Array[NLPGraph] = {
@@ -156,19 +165,23 @@ object NEE {
         kv => {
           val sentence = kv._1
           val candidates = kv._2
-          candidates.map(c => new RDFtranslation(sentence, c)).toList :+
-            (new SentenceNode(sentence))
+          candidates.map(c => new RDFtranslation(sentence, c)).toList
         }).toList
 
     def createGraph(nodes: Array[SentenceNode]): NLPGraph = {
-      val getNode = (id: String) => nodes.filter(n => n.sentence.id.head == id)
+      val getNode = (id: String) => nodes.filter(n => n.sentence.id.contains(id))
+      val headOf = (s: Sentence) => {
+        val rootId = getTreeRoot(s)
+        val rootIndex = s.id.indexOf(rootId)
+        getNode(s.dep(rootIndex))
+      }
 
-      def getEdges(toProcess: Array[SentenceNode], acc: Array[DiEdge[SentenceNode]] = Array[DiEdge[SentenceNode]]()): Array[DiEdge[SentenceNode]] = {
-        if (toProcess.isEmpty) return acc
-        val head = getNode(toProcess.head.sentence.dep.head)
-        val current = getNode(toProcess.head.sentence.id.head)
-        if (! head.isEmpty || ! current.isEmpty) return getEdges(toProcess.tail, acc)
-        return getEdges(toProcess.tail, acc :+ DiEdge(head.head, current.head))
+      def getEdges(toProcess: Array[SentenceNode], acc: Array[DiEdge[SentenceNode]] = Array[DiEdge[SentenceNode]]()): List[DiEdge[SentenceNode]] = {
+        if (toProcess.isEmpty) return acc.toList
+        val current = toProcess.head
+        val head = headOf(current.sentence)
+        if (head.isEmpty) return getEdges(toProcess.tail, acc)
+        return getEdges(toProcess.tail, acc :+ head.head~>current)
       }
 
       return new NLPGraph(Graph.from(nodes, getEdges(nodes)))
