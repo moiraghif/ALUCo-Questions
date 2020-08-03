@@ -138,23 +138,60 @@ object Lexicalization {
 object NEE {
 
   class NLPGraph(val graph: Graph[SentenceNode, DiEdge]) {
-    def getNodes(): List[SentenceNode] = graph.nodes.toList.map(_.toOuter)
+    def getNodes(): Set[SentenceNode] = graph.nodes.toList.map(n => n.value).toSet
+    def getValue(node: graph.NodeT): SentenceNode = node.value
+
+    def getHead(startNode: graph.NodeT = graph.nodes.head): graph.NodeT = {
+      val nextNodes = startNode.edges.filter(n => n._2 == startNode).map(_._1)
+      if (nextNodes.isEmpty) return startNode
+      return getHead(nextNodes.head)
+    }
+
+    def getNode(node: SentenceNode): Option[graph.NodeT] =
+      Option(graph.nodes.toList.filter(n => n.value == node).head)
+    def getNode(s: Sentence): Option[graph.NodeT] =
+      Option(graph.nodes.toList.filter(n => n.value.sentence == s).head)
+    def getNode(rdf: RDFNode): Option[graph.NodeT] =
+      Option(graph.nodes.toList.filter(n => n.value.rdf == rdf).head)
+
+    def getRDFTranslations(): List[graph.NodeT] = {
+      val nodes = graph.nodes.toList.filter(n => n.value.rdf.isDefined)
+      val head = getHead()
+      return nodes.sortBy(n => head.shortestPathTo(n).get.length).reverse
+    }
+
+    def contains(node: graph.NodeT): Boolean = contains(node.value)
+    def contains(node: SentenceNode): Boolean = getNodes().contains(node)
+    def contains(sentence: Sentence): Boolean = getNode(sentence).isDefined
+    def contains(node: RDFNode): Boolean = getNodes().exists(n => n.rdf == node)
 
     override def toString(): String = {
-      val nodes = getNodes()
+      val nodes = getNodes().toArray
       val nodesSorted = nodes.sortBy(n => n.sentence.id.head.toInt)
       return nodesSorted.map(_.toString).mkString(" ")
     }
+  }
 
-    def getHead(startNode: graph.NodeT = graph.nodes.head): graph.NodeT = {
-      val nextNode = startNode.edges.head._1
-      if (startNode == nextNode) return nextNode
-      return getHead(nextNode)
+  def createGraph(nodes: Array[SentenceNode]): NLPGraph = {
+    /**
+     * create a NLPGraph from an array of NODES
+     */
+    val getNode = (id: String) => nodes.filter(n => n.sentence.id.contains(id))
+    val headOf = (s: Sentence) => {
+      val rootId = getTreeRoot(s)
+      val rootIndex = s.id.indexOf(rootId)
+      getNode(s.dep(rootIndex))
     }
 
-    def getNode(s: Sentence): List[graph.NodeT] = {
-      graph.nodes.toList.filter(n => n.toOuter.sentence == s)
+    def getEdges(toProcess: Array[SentenceNode], acc: Array[DiEdge[SentenceNode]] = Array[DiEdge[SentenceNode]]()): List[DiEdge[SentenceNode]] = {
+      if (toProcess.isEmpty) return acc.toList
+      val current = toProcess.head
+      val head = headOf(current.sentence)
+      if (head.isEmpty) return getEdges(toProcess.tail, acc)
+      return getEdges(toProcess.tail, acc :+ head.head~>current)
     }
+
+    return new NLPGraph(Graph.from(nodes, getEdges(nodes)))
   }
 
   def sentenceToGraph(sentences: Map[Sentence, Array[RDFNode]]): Array[NLPGraph] = {
@@ -165,27 +202,10 @@ object NEE {
         kv => {
           val sentence = kv._1
           val candidates = kv._2
-          candidates.map(c => new RDFtranslation(sentence, c)).toList
+          if (candidates.isEmpty) List(new SentenceNode(sentence)) 
+          else candidates.map(c => new SentenceNode(sentence, Some(c))).toList
         }).toList
 
-    def createGraph(nodes: Array[SentenceNode]): NLPGraph = {
-      val getNode = (id: String) => nodes.filter(n => n.sentence.id.contains(id))
-      val headOf = (s: Sentence) => {
-        val rootId = getTreeRoot(s)
-        val rootIndex = s.id.indexOf(rootId)
-        getNode(s.dep(rootIndex))
-      }
-
-      def getEdges(toProcess: Array[SentenceNode], acc: Array[DiEdge[SentenceNode]] = Array[DiEdge[SentenceNode]]()): List[DiEdge[SentenceNode]] = {
-        if (toProcess.isEmpty) return acc.toList
-        val current = toProcess.head
-        val head = headOf(current.sentence)
-        if (head.isEmpty) return getEdges(toProcess.tail, acc)
-        return getEdges(toProcess.tail, acc :+ head.head~>current)
-      }
-
-      return new NLPGraph(Graph.from(nodes, getEdges(nodes)))
-    }
     def cartesianProduct[T](list: Seq[Seq[T]]): Seq[Seq[T]] = list match {
       case Nil => Seq(Nil)
       case h :: t => for(xh <- h; xt <- cartesianProduct(t)) yield xh +: xt
@@ -260,13 +280,13 @@ object NEE {
     return sentenceTree.toMap
   }
 
-  def apply(tree: Sentence): Array[NLPGraph] = {
+  def apply(tree: Sentence): (Map[Sentence, Array[RDFNode]], Array[NLPGraph]) = {
     /**
      * return the TREE annotated with some semantics nodes
      */
     val sentenceTree = slidingWindow(tree)
     val graphs = sentenceToGraph(sentenceTree)
-    return graphs
+    return (sentenceTree.filterNot(kv => kv._2.isEmpty), graphs)
   }
 
 }

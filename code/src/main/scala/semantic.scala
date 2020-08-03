@@ -15,17 +15,76 @@ import main.constants._
 
 
 
-class SentenceNode(val sentence: Sentence) {
-  override def toString(): String = sentence.sentence
-}
-class RDFtranslation(sentence: Sentence, val rdf: RDFNode) extends SentenceNode(sentence) {
-  override def toString(): String = s"<$rdf>"
+object DUDES {
+
+  abstract class MainDUDES(val sentence: Sentence,
+                           val o: Some[RDFNode] = null,
+                           val r: Some[RDFNode] = null,
+                           val c: Some[RDFNode] = null) {
+
+    def getObjectDUDES(): String = {
+      if (o.isDefined) return s"<$o>"
+      return s"?var_${getTreeRoot(sentence)}"
+    }
+    def getRelationDUDES(): String = {
+      if (r.isDefined) return s"<$r>"
+      return s"?var_${getTreeRoot(sentence)}_relation"
+    } 
+    def getClassDUDES(): String = {
+      if (c.isDefined) return s"<$c>"
+      return s"?var_${getTreeRoot(sentence)}_class"
+    }
+
+    def toRDF(prev: MainDUDES): String = getObjectDUDES()
+    def toRDF(): String = getObjectDUDES()
+
+    def apply(): Some[RDFNode] = o
+  
+    override def toString(): String = sentence.sentence
+  }
+
+  class IncognitaDUDES(sentence: Sentence) extends MainDUDES(sentence)
+
+  class VariableDUDES(sentence: Sentence, variable: RDFNode)
+      extends MainDUDES(sentence, o = Some(variable))
+
+  class RelationDUDES(sentence: Sentence, rel: RDFNode)
+      extends MainDUDES(sentence, r = Some(rel)) {
+
+    override def toRDF(prev: MainDUDES): String =
+      s"${prev.getObjectDUDES()}  ${getRelationDUDES()}  ${getObjectDUDES()} ."
+  }
+
+  class ObjectDUDES(sentence: Sentence, obj: RDFNode)
+      extends MainDUDES(sentence, o = Some(obj)) {
+    override def toRDF(prev: MainDUDES): String =
+      s"${prev.getObjectDUDES()}  ${getRelationDUDES()}  ${getObjectDUDES()} ."
+  }
+
+  class ClassDUDES(sentence: Sentence, cls: RDFNode)
+      extends MainDUDES(sentence, c = Some(cls)) {
+    override def toRDF(prev: MainDUDES): String =
+      s"""${prev.getObjectDUDES()}  ${getRelationDUDES()}  ${getObjectDUDES()} .
+         |${getObjectDUDES()}  a  ${getClassDUDES()}""".stripMargin
+  }
+
 }
 
 
-class SolutionGraph(val graph: Graph[SentenceNode, DiEdge], val score: Double) {
-  def apply(): Array[SolutionGraph] = ???
+class SentenceNode(val sentence: Sentence, val rdf: Option[RDFNode] = None) {
+  def destroy(): Array[SentenceNode] = {
+    /**
+     * transform this translation into a list of single meaningless SentenceNodes
+     */
+    val sentences = sentence.id.map(i => sentence.get(Array(i)))
+    return sentences.map(s => new SentenceNode(s))
+  }     
+
+  override def toString(): String = rdf.getOrElse(sentence.sentence).toString
 }
+
+class SolutionGraph(graph: Graph[SentenceNode, DiEdge], val score: Double)
+    extends NEE.NLPGraph(graph)
 
 
 object QASystem {
@@ -45,8 +104,9 @@ object QASystem {
                    |}""".stripMargin
     return KG(query).toArray
   }
-  def expandGraph(topic: RDFtranslation, out: Boolean): Array[QuerySolution] =
-    expandGraph(topic.rdf, out)
+  def expandGraph(topic: SentenceNode, out: Boolean): Array[QuerySolution] =
+    if (topic.rdf.isDefined) expandGraph(topic.rdf.get, out)
+    else Array[QuerySolution]()
 
 
   def exploreTreeUp(tree: Sentence, topic: Sentence): Array[Sentence] = {
@@ -70,17 +130,43 @@ object QASystem {
   def exploreTree(tree: Sentence, topic: Sentence): Array[Sentence] =
     exploreTreeUp(tree, topic)
 
+  def filterTopics(graphs: Array[NEE.NLPGraph],
+                 candidates: Map[Sentence, Array[RDFNode]]): Array[SolutionGraph] = {
+    /**
+     * filter the GRAPHS according to CANDIDATES and transform them in SolutionGraphs
+     */
+    val stepOrder: List[Sentence] = graphs.head.getRDFTranslations.map(n => n.toOuter.sentence)
+
+    def filterNextStep(node: RDFNode, nextNode: Seq[RDFNode], out: Boolean): Seq[RDFNode] = {
+      val nextStep = expandGraph(node, out)
+      val nodes = (nextStep.map(n => n.get("?relation")).toSet ++
+                     nextStep.map(n => n.get("?object")).toSet ++
+                     nextStep.map(n => n.get("?class")).toSet)
+      return nextNode.filter(n => nodes.contains(n))
+    }
+    def addRemainingNodes(g: SolutionGraph): SolutionGraph = {
+      return g
+    }
+    def initialize(input: Array[NEE.NLPGraph],
+                 acc: Array[SolutionGraph] = Array[SolutionGraph](),
+                 step: Int = 0): Array[SolutionGraph] = {
+
+      if (step >= stepOrder.size - 1) return acc.map(addRemainingNodes)
+
+      candidates(stepOrder(step)).map(
+        candidate => {  // : RDFNode
+          val nextStepsOut = filterNextStep(candidate, candidates(stepOrder(step + 1)), true)
+          true
+        })
+      return initialize(input, acc, step + 1)
+    }
+    return initialize(graphs)
+  }
 
   def apply(question: String): String = {
     val tree: Sentence = Parser(question)
-    val topics: Array[NEE.NLPGraph] = NEE(tree)
-    topics.foreach(println)
-    // val graphs: Array[SolutionGraph] = topics.map(
-    //   t => {
-    //     val graph: Graph[SentenceNode, DiEdge] = Graph(t)
-    //     val sentenceWithoutTopic = tree.remove(t.sentence)
-    //     new SolutionGraph(graph, 1.0, tree, sentenceWithoutTopic)
-    //   })
+    val (topics: Map[Sentence, Array[RDFNode]], graphs: Array[NEE.NLPGraph]) = NEE(tree)
+    val topicsFiltered: Array[SolutionGraph] = filterTopics(graphs, topics)
     return "42"
   }
 

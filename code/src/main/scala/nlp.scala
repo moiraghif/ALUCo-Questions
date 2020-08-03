@@ -20,7 +20,6 @@ import DefaultJsonProtocol._
 
 import main.utils._
 import main.constants._
-import semantics.RDFtranslation
 
 
 class Sentence(tree: Map[String, Array[String]], val lang: String) {
