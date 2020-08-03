@@ -136,8 +136,9 @@ object Lexicalization {
 
 
 object NEE {
-
+  /*
   class NLPGraph(val graph: Graph[SentenceNode, DiEdge]) {
+    // A ~> B  =>  A dependsOn B
     def getNodes(): Set[SentenceNode] = graph.nodes.toList.map(n => n.value).toSet
     def getValue(node: graph.NodeT): SentenceNode = node.value
 
@@ -151,8 +152,6 @@ object NEE {
       Option(graph.nodes.toList.filter(n => n.value == node).head)
     def getNode(s: Sentence): Option[graph.NodeT] =
       Option(graph.nodes.toList.filter(n => n.value.sentence == s).head)
-    def getNode(rdf: RDFNode): Option[graph.NodeT] =
-      Option(graph.nodes.toList.filter(n => n.value.rdf == rdf).head)
 
     def getRDFTranslations(): List[graph.NodeT] = {
       val nodes = graph.nodes.toList.filter(n => n.value.rdf.isDefined)
@@ -160,10 +159,19 @@ object NEE {
       return nodes.sortBy(n => head.shortestPathTo(n).get.length).reverse
     }
 
+    def areConsecutive(node1: graph.NodeT, node2: graph.NodeT): Boolean =
+      node1.edges.toSet.contains(node1~>node2) || node1.edges.toSet.contains(node2~>node1)
+    def areConsecutive(sent1: Sentence, sent2: Sentence): Boolean = {
+      val node1 = getNode(sent1)
+      val node2 = getNode(sent2)
+      if (node1.isDefined && node2.isDefined) return areConsecutive(node1.get, node2.get)
+      return false
+    }
+
     def contains(node: graph.NodeT): Boolean = contains(node.value)
     def contains(node: SentenceNode): Boolean = getNodes().contains(node)
     def contains(sentence: Sentence): Boolean = getNode(sentence).isDefined
-    def contains(node: RDFNode): Boolean = getNodes().exists(n => n.rdf == node)
+    def contains(node: RDFNode): Boolean = getNodes().exists(n => n.rdf.contains(node))
 
     override def toString(): String = {
       val nodes = getNodes().toArray
@@ -194,25 +202,19 @@ object NEE {
     return new NLPGraph(Graph.from(nodes, getEdges(nodes)))
   }
 
-  def sentenceToGraph(sentences: Map[Sentence, Array[RDFNode]]): Array[NLPGraph] = {
+  def sentenceToGraph(sentences: Map[Sentence, Array[RDFNode]]): NLPGraph = {
     /**
      * transform the sentence into a graph
      */
-    val nodesList: List[List[SentenceNode]] = sentences.map(
+    val nodesList: List[SentenceNode] = sentences.map(
         kv => {
           val sentence = kv._1
           val candidates = kv._2
-          if (candidates.isEmpty) List(new SentenceNode(sentence)) 
-          else candidates.map(c => new SentenceNode(sentence, Some(c))).toList
+          new SentenceNode(sentence, candidates)
         }).toList
-
-    def cartesianProduct[T](list: Seq[Seq[T]]): Seq[Seq[T]] = list match {
-      case Nil => Seq(Nil)
-      case h :: t => for(xh <- h; xt <- cartesianProduct(t)) yield xh +: xt
-    }
-    return cartesianProduct(nodesList).map(n => createGraph(n.toArray)).toArray
+    return createGraph(nodesList.toArray)
   }
-
+   */
 
   def getWithLanguage(variable: String, label: String, lang: String): String =
     /**
@@ -260,33 +262,129 @@ object NEE {
     for (windowSize <- (1 to math.min(tree.length - 1, maxSize)).reverse;
        i <- 0 to (tree.length - windowSize)) {
       val candidate: Sentence = tree.getPortion((i, i + windowSize))
-      if (! sentenceTree.keySet.exists(isSubStringOf(candidate, _)))
-        if (windowSize > 1 || (windowSize == 1 && POS.openClassPOS(tree.pos(i)))) {
-          val entities: Array[QuerySolution] = getEntities(candidate)
-          if (! entities.isEmpty) {
-            val topics = entities.map(e => e.get("?topic")).toArray
-            if (printLog())
-              println(s"${candidate.sentence}: ${topics.length}")
-            sentenceTree += (candidate -> topics)
-          }
-        } else if (windowSize == 1) sentenceTree += (candidate -> Array[RDFNode]())
+      if (! sentenceTree.keySet.exists(isSubStringOf(candidate, _)) &&
+            (windowSize > 1 || (windowSize == 1 && POS.openClassPOS(tree.pos(i))))) {
+        val entities: Array[QuerySolution] = getEntities(candidate)
+        if (! entities.isEmpty) {
+          val topics = entities.map(e => e.get("?topic")).toArray
+          sentenceTree += (candidate -> topics)
+        }
+      }
     }
     if (printLog()) {
-      println("\n")
+      println("")
       sentenceTree.foreach(i =>
-        if (i._2.isEmpty) println(s"${i._1.sentence}")
-        else println(s"${i._1.sentence}: \n" + i._2.map(i => s" - $i").mkString("\n")))
+        println(s"${i._1.sentence}: \n" + i._2.map(i => s" - $i").mkString("\n") + "\n"))
     }
     return sentenceTree.toMap
   }
 
-  def apply(tree: Sentence): (Map[Sentence, Array[RDFNode]], Array[NLPGraph]) = {
+  def disambiguate(sentence: Sentence, candidates: Map[Sentence, Array[RDFNode]]):
+      List[DUDES.SolutionGraph] = {
     /**
-     * return the TREE annotated with some semantics nodes
+     * returns a SolutionGraph disambiguation of the sentence
      */
-    val sentenceTree = slidingWindow(tree)
-    val graphs = sentenceToGraph(sentenceTree)
-    return (sentenceTree.filterNot(kv => kv._2.isEmpty), graphs)
+    val parsingOrder: List[Sentence] = candidates
+      .keySet.toList
+      .sortBy(s => getTreeRoot(s).toInt )
+      .reverse
+
+    def areConsecutive(sent1: Sentence, sent2: Sentence): Boolean = {
+      val check = (s1: Sentence, s2: Sentence)
+        => !s2.dep.intersect(s1.id).isEmpty
+      return check(sent1, sent2) || check(sent2, sent1)
+    }
+
+    def filter(nodes: Map[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]],
+             i: Int = 0): Map[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]] = {
+      if (i >= parsingOrder.length)  // end of the list
+        return nodes
+      val sent = parsingOrder(i)
+      val nextSent = parsingOrder(i + 1)
+      if (! areConsecutive(sent, nextSent)) // non-consecutive nodes
+        return nodes
+
+      val getNexts = (oldDudesList: List[DUDES.MainDUDES],
+                      oldEdges: List[DiEdge[DUDES.MainDUDES]],
+                      out: Boolean) => {
+        /**
+         * this routine gives you new dudes (with relations) if they are linkable
+         * to a new candidate (from newCandidates)
+         */
+        val oldDudes = oldDudesList.last
+        val newCandidates: List[RDFNode] = candidates(nextSent).toList
+        val nextSteps: Array[QuerySolution] = QASystem.expandGraph(oldDudes(), out)
+        println(oldDudes.toRDF)
+        val r = nextSteps.map(s => s.get("?relation"))
+        val o = nextSteps.map(s => s.get("?object"))
+        val c = nextSteps.map(s => s.get("?class"))
+        newCandidates.map(rdf => {
+          if (r.contains(rdf)) {
+            val newDudes = new DUDES.RelationDUDES(nextSent, rdf)
+            if (out) (Some(newDudes), Some(oldDudes ~> newDudes))
+            else     (Some(newDudes), Some(newDudes ~> oldDudes))
+          } else if (o.contains(rdf)) {
+            val newDudes = new DUDES.ObjectDUDES(nextSent, rdf)
+            if (out) (Some(newDudes), Some(oldDudes ~> newDudes))
+            else     (Some(newDudes), Some(newDudes ~> oldDudes))
+          } else if (c.contains(rdf)) {
+            val newDudes = new DUDES.ClassDUDES(nextSent, rdf)
+            if (out) (Some(newDudes), Some(oldDudes ~> newDudes))
+            else     (Some(newDudes), Some(newDudes ~> oldDudes))
+          } else (None, None)
+        }).filter(kv => kv._1.isDefined)
+          .map(kv => (oldDudesList :+ kv._1.get, oldEdges :+ kv._2.get))
+          .toMap
+      }
+
+      val out = nodes.map(kv => {
+                            val oldDudes = kv._1
+                            val oldEdges = kv._2
+                            getNexts(oldDudes, oldEdges, true) ++
+                              getNexts(oldDudes, oldEdges, false)
+                          })
+        .toList.flatten.toMap
+        .filter(kv => ! kv._2.isEmpty)
+
+      if (out.isEmpty) return nodes
+      return filter(out, i + 1)
+    }
+    val topicDUDES = candidates(parsingOrder.head).map(rdf =>
+      new DUDES.VariableDUDES(parsingOrder.head, rdf))
+      .map(d => (List(d), List[DiEdge[DUDES.MainDUDES]]()))
+      .toMap[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]]
+
+    val dudes = filter(topicDUDES)
+    println(dudes.size)
+
+    if (printLog()) {
+      println("Disambiguation results:")
+      for (kv <- dudes) {
+        val dude = kv._1
+        val links = kv._2
+        println(s"- $dude : $links")
+      }
+    }
+
+    return dudes.map(
+      kv => {
+        val dudes = kv._1
+        val edges = kv._2
+        val dudesSentences = dudes.map(d => d.sentence.id)
+        val restOfTheSentence: Array[String] = (1 to sentence.length).toArray
+          .map(i => i.toString)
+          .filterNot(i => dudesSentences.contains(i))
+        val graph = Graph.from(dudes, edges)
+        new DUDES.SolutionGraph(graph, 1.0, restOfTheSentence.map(i => sentence.get(Array(i))))
+      }).toList
+  }
+
+
+  def apply(tree: Sentence): List[DUDES.SolutionGraph] = {
+    /**
+     * return a DUDES representation of the sentence
+     */
+    return disambiguate(tree, slidingWindow(tree))
   }
 
 }
