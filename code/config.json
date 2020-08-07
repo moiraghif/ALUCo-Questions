@@ -7,7 +7,7 @@
         "name":     "sparql",
         "url":      "https://dbpedia.org/",
         "endpoint": "query",
-        "latency":  0.1
+        "latency":  0.0
     },
 
     "udpipe": {

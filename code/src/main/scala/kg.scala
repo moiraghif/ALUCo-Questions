@@ -181,9 +181,6 @@ object NEE {
   }
 
   def createGraph(nodes: Array[SentenceNode]): NLPGraph = {
-    /**
-     * create a NLPGraph from an array of NODES
-     */
     val getNode = (id: String) => nodes.filter(n => n.sentence.id.contains(id))
     val headOf = (s: Sentence) => {
       val rootId = getTreeRoot(s)
@@ -203,9 +200,6 @@ object NEE {
   }
 
   def sentenceToGraph(sentences: Map[Sentence, Array[RDFNode]]): NLPGraph = {
-    /**
-     * transform the sentence into a graph
-     */
     val nodesList: List[SentenceNode] = sentences.map(
         kv => {
           val sentence = kv._1
@@ -355,7 +349,6 @@ object NEE {
       .toMap[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]]
 
     val dudes = filter(topicDUDES)
-    println(dudes.size)
 
     if (printLog()) {
       println("Disambiguation results:")
@@ -375,7 +368,7 @@ object NEE {
           .map(i => i.toString)
           .filterNot(i => dudesSentences.contains(i))
         val graph = Graph.from(dudes, edges)
-        new DUDES.SolutionGraph(graph, 1.0, restOfTheSentence.map(i => sentence.get(Array(i))))
+        new DUDES.SolutionGraph(graph)
       }).toList
   }
 

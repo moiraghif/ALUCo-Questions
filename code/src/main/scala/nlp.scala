@@ -56,6 +56,7 @@ class Sentence(tree: Map[String, Array[String]], val lang: String) {
         "link"  -> index.map(link)),
       lang)
   def get(index: Array[String]): Sentence = get(index.map(i => id.indexOf(i)))
+  def get(id: String): Sentence = get(Array(id))
   def getPortion(portion: (Int, Int)): Sentence = get((portion._1 until portion._2).toArray)
   def remove(index: Array[Int]): Sentence = get((0 until length).toArray.filter(! index.contains(_)))
   def remove(index: Array[String]): Sentence = remove(index.map(id.indexOf(_)))
