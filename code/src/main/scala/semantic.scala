@@ -74,7 +74,8 @@ object DUDES {
       return s"?class_${getTreeRoot(sentence)}"
     }
 
-    def toRDF(next: MainDUDES): String = getObjectDUDES()
+    def toRDF(prev: MainDUDES): String =
+      s"${prev.getObjectDUDES()}  ${prev.getRelationDUDES()}  ${getObjectDUDES()}"
     def toRDF(): String = getObjectDUDES()
 
     def apply(): RDFNode = o.get
@@ -101,8 +102,8 @@ object DUDES {
       extends MainDUDES(sentence, r = Some(rel),
                         score = score, dist = dist) {
 
-    override def toRDF(next: MainDUDES): String =
-      s"${getObjectDUDES()}  ${next.getRelationDUDES()}  ${next.getObjectDUDES()} ."
+    override def toRDF(prev: MainDUDES): String =
+      s"${prev.getObjectDUDES()}  ${getRelationDUDES()}  ${getObjectDUDES()} ."
 
     override def toString(): String = s"<${r.get}>"
 
@@ -114,8 +115,8 @@ object DUDES {
                          override val score: Double = 1.0)
       extends MainDUDES(sentence, o = Some(obj),
                         score = score, dist = dist) {
-    override def toRDF(next: MainDUDES): String =
-      s"${getObjectDUDES()}  ${next.getRelationDUDES()}  ${next.getObjectDUDES()} ."
+    /* override def toRDF(next: MainDUDES): String =
+      s"${getObjectDUDES()}  ${next.getRelationDUDES()}  ${next.getObjectDUDES()} ." */
 
     override def toString(): String = s"<${o.get}>"
   }
@@ -126,8 +127,8 @@ object DUDES {
                         override val score: Double = 1.0)
       extends MainDUDES(sentence, c = Some(cls),
                         score = score, dist = dist) {
-    override def toRDF(next: MainDUDES): String =
-      s"""${getObjectDUDES()}  ${next.getRelationDUDES()}  ${next.getObjectDUDES()} .
+    override def toRDF(prev: MainDUDES): String =
+      s"""${prev.getObjectDUDES()}  ${prev.getRelationDUDES()}  ${getObjectDUDES()} .
          |${getObjectDUDES()}  a  ${getClassDUDES()}""".stripMargin
 
     override def toString(): String = s"<${c.get}>"
@@ -209,7 +210,7 @@ object DUDES {
                   case n: IncognitaDUDES => false
                   case _ => true
                 })
-        .map(e => e._1.value.toRDF(e._2.value))
+        .map(e => e._2.value.toRDF(e._1.value))
       return makeRDF(triples) 
     }
 
