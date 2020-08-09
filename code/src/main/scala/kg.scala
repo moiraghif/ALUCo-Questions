@@ -112,6 +112,19 @@ object Lexicalization {
     return lang == "@" + language 
   }
 
+  def apply(queries: List[QuerySolution], language: String, variable: String): Map[RDFNode, List[String]] = {
+    val nodes: List[RDFNode] = queries.map(q => q.get(s"?$variable")).toSet.toList
+    val validQueries = queries.filter(q => filterLanguage(q.get(s"?${variable}_label"), language))
+    val lexicalizations: Map[RDFNode, List[RDFNode]] = nodes
+      .map(n => (n, validQueries.filter(q => q.get(s"?$variable") == n)
+                                .map(q => q.get(s"?${variable}_label"))))
+      .toMap
+    val out = lexicalizations
+      .map(kv => (kv._1, cleanUri(kv._1) +: kv._2.filter(e => e != null).map(cleanLabel)))
+      .map(kv => (kv._1, kv._2.map(cleanText)))
+    return out
+  }
+
   def apply(node: RDFNode, language: String): List[String] = {
     /**
      * translate a result into text: translate a NODE into a string taking

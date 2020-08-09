@@ -67,11 +67,11 @@ object DUDES {
     }
     def getRelationDUDES(): String = {
       if (r.isDefined) return s"<${r.get}>"
-      return s"?var_${getTreeRoot(sentence)}_relation"
+      return s"?relation_${getTreeRoot(sentence)}"
     } 
     def getClassDUDES(): String = {
       if (c.isDefined) return s"<${c.get}>"
-      return s"?var_${getTreeRoot(sentence)}_class"
+      return s"?class_${getTreeRoot(sentence)}"
     }
 
     def toRDF(next: MainDUDES): String = getObjectDUDES()
@@ -286,18 +286,19 @@ object QASystem {
 
 object PerfectMatch {
 
+  def perfectMatch(candidate: String, possibilities: List[String]): Boolean =
+    possibilities.map(p => p.toLowerCase()).contains(candidate.toLowerCase())
+
   def getRelations(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean):
       List[DUDES.SolutionGraph] = {
-    val relationsIn = KG(s"""SELECT DISTINCT ?relation ?label WHERE {
-                            |  $topic ?relation ?object.
-                            |  ?object a ?class.
-                            |  OPTIONAL { ?relation rdfs:label ?label. }
-                            |}""".stripMargin)
-      .filter(q => {
-                val ts = Lexicalization(q.get("?relation"), topic.sentence.lang)
-                ts.exists(t => t.toLowerCase == sentence.sentence.toLowerCase)
-              })
-      .map(q => q.get("?relation"))
+    val relationsIn = Lexicalization(
+      KG(s"""SELECT DISTINCT ?relation ?relation_label WHERE {
+            |  $topic ?relation ?object.
+            |  ?object a ?class.
+            |  OPTIONAL { ?relation rdfs:label ?relation_label. }
+            |}""".stripMargin).toList, sentence.lang, "relation")
+      .filter(kv => perfectMatch(sentence.sentence, kv._2))
+      .map(kv => kv._1)
       .map(r => {
              val newDudes = new DUDES.RelationDUDES(sentence, r,
                                                     topic.dist + 1, 1.0)
@@ -306,16 +307,14 @@ object PerfectMatch {
            })
       .filter(g => g.isDefined)
       .map(g => g.get)
-    val relationsOut = KG(s"""SELECT DISTINCT ?relation ?label WHERE {
-                             |  ?object ?relation $topic.
-                             |  ?object a ?class.
-                             |  OPTIONAL { ?relation rdfs:label ?label. }
-                             |}""".stripMargin)
-      .filter(q => {
-                val ts = Lexicalization(q.get("?relation"), topic.sentence.lang)
-                ts.exists(t => t.toLowerCase == sentence.sentence.toLowerCase)
-              })
-      .map(q => q.get("?relation"))
+    val relationsOut = Lexicalization(
+      KG(s"""SELECT DISTINCT ?relation ?relation_label WHERE {
+            |  ?object ?relation $topic.
+            |  ?object a ?class.
+            |  OPTIONAL { ?relation rdfs:label ?relation_label. }
+            |}""".stripMargin).toList, sentence.lang, "relation")
+      .filter(kv => perfectMatch(sentence.sentence, kv._2))
+      .map(kv => kv._1)
       .map(r => {
              val newDudes = new DUDES.RelationDUDES(sentence, r,
                                                     topic.dist + 1, 1.0)
@@ -329,16 +328,14 @@ object PerfectMatch {
 
   def getObjects(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean):
       List[DUDES.SolutionGraph] = {
-    val objectsIn = KG(s"""SELECT DISTINCT ?object ?label WHERE {
-                          |  $topic ?relation ?object.
-                          |  ?object a ?class.
-                          |  OPTIONAL { ?object rdfs:label ?label. }
-                          |}""".stripMargin)
-      .filter(q => {
-                val ts = Lexicalization(q.get("?object"), topic.sentence.lang)
-                ts.exists(t => t.toLowerCase == sentence.sentence.toLowerCase)
-              })
-      .map(q => q.get("?object"))
+    val objectsIn = Lexicalization(
+      KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
+            |  $topic ?relation ?object.
+            |  ?object a ?class.
+            |  OPTIONAL { ?object rdfs:label ?object_label. }
+            |}""".stripMargin).toList, sentence.lang, "object")
+      .filter(kv => perfectMatch(sentence.sentence, kv._2))
+      .map(kv => kv._1)
       .map(o => {
              val newDudes = new DUDES.ObjectDUDES(sentence, o,
                                                   topic.dist + 1, 1.0)
@@ -347,16 +344,14 @@ object PerfectMatch {
            })
       .filter(g => g.isDefined)
       .map(g => g.get)
-    val objectsOut = KG(s"""SELECT DISTINCT ?object ?label WHERE {
-                           |  ?object ?relation $topic.
-                           |  ?object a ?class.
-                           |  OPTIONAL { ?object rdfs:label ?label. }
-                           |}""".stripMargin)
-      .filter(q => {
-                val ts = Lexicalization(q.get("?object"), topic.sentence.lang)
-                ts.exists(t => t.toLowerCase == sentence.sentence.toLowerCase)
-              })
-      .map(q => q.get("?object"))
+    val objectsOut = Lexicalization(
+      KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
+            |  ?object ?relation $topic.
+            |  ?object a ?class.
+            |  OPTIONAL { ?object rdfs:label ?object_label. }
+            |}""".stripMargin).toList, sentence.lang, "object")
+      .filter(kv => perfectMatch(sentence.sentence, kv._2))
+      .map(kv => kv._1)
       .map(o => {
              val newDudes = new DUDES.ObjectDUDES(sentence, o,
                                                   topic.dist + 1, 1.0)
@@ -370,16 +365,14 @@ object PerfectMatch {
 
   def getClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean):
       List[DUDES.SolutionGraph] = {
-    val classesIn = KG(s"""SELECT DISTINCT ?class ?label WHERE {
-                          |  $topic ?relation ?object.
-                          |  ?object a ?class.
-                          |  OPTIONAL { ?class rdfs:label ?label. } 
-                          |}""".stripMargin)
-      .filter(q => {
-                val ts = Lexicalization(q.get("?class"), topic.sentence.lang)
-                ts.exists(t => t.toLowerCase == sentence.sentence.toLowerCase)
-              })
-      .map(q => q.get("?class"))
+    val classesIn = Lexicalization(
+      KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
+            |  $topic ?relation ?object.
+            |  ?object a ?class.
+            |  OPTIONAL { ?class rdfs:label ?class_label. } 
+            |}""".stripMargin).toList, sentence.lang, "class")
+      .filter(kv => perfectMatch(sentence.sentence, kv._2))
+      .map(kv => kv._1)
       .map(c => {
              val newDudes = new DUDES.ClassDUDES(sentence, c,
                                                  topic.dist + 1, 1.0)
@@ -388,16 +381,14 @@ object PerfectMatch {
            })
       .filter(g => g.isDefined)
       .map(g => g.get)
-    val classesOut = KG(s"""SELECT DISTINCT ?class ?label WHERE {
-                           |  ?object ?relation $topic.
-                           |  ?object a ?class.
-                           |  OPTIONAL { ?class rdfs:label ?label. }
-                           |}""".stripMargin)
-      .filter(q => {
-                val ts = Lexicalization(q.get("?class"), topic.sentence.lang)
-                ts.exists(t => t.toLowerCase == sentence.sentence.toLowerCase)
-              })
-      .map(q => q.get("?class"))
+    val classesOut = Lexicalization(
+      KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
+            |  ?object ?relation $topic.
+            |  ?object a ?class.
+            |  OPTIONAL { ?class rdfs:label ?class_label. }
+            |}""".stripMargin).toList, sentence.lang, "class")
+      .filter(kv => perfectMatch(sentence.sentence, kv._2))
+      .map(kv => kv._1)
       .map(c => {
              val newDudes = new DUDES.ClassDUDES(sentence, c,
                                                  topic.dist + 1, 1.0)
