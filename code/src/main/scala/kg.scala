@@ -52,16 +52,16 @@ object KG {
   val queryKG = connectToKg(url) _
 
 
-  def apply(query: String): Iterator[QuerySolution] = {
+  def apply(query: String): List[QuerySolution] = {
     /**
      * execute a select QUERY from the standard database; it returns an iterator
      * of possible solutions
      * this function is polite: it respects the latency setted in config.json
      */
     // TODO: add try-catch in case the query does not succeed
-    val solutions = queryKG(query).execSelect().asScala
+    val solutions = queryKG(query).execSelect().asScala.toList
     Thread.sleep(getLatency().toLong)
-    for {solution <- solutions} yield solution
+    return solutions
   }
 
 }
@@ -138,7 +138,6 @@ object Lexicalization {
     return cleanText(node.toString) +: KG(labelQuery)
       .filter(q => filterLanguage(q.get("?label"), language))
       .map(q => cleanLabel(q.get("?label")))
-      .toList
   }
   def apply(node: QuerySolution, variable: String, language: String): List[String] =
     apply(node.get(s"?$variable"), language)
@@ -159,14 +158,14 @@ object NEE {
        |""".stripMargin
 
 
-  def getEntities(subTree: Sentence): Array[QuerySolution] = {
+  def getEntities(subTree: Sentence): List[QuerySolution] = {
     /**
      * get the array of entities for a SUBTREE
      */
     
     // exclude the string if has not a valid syntax construction
     if (! subTree.isValidTree)
-      return Array[QuerySolution]()
+      return List[QuerySolution]()
 
     // other strings are analyzed in order to search for combinations of upper/lower cases
     if (printLog()) println(s"checking: $subTree")
@@ -180,7 +179,7 @@ object NEE {
             }).mkString(" ")
           getWithLanguage("?topic", forma, subTree.lang)
         }).mkString(" UNION ") + "\n}"
-    return KG(query).toArray
+    return KG(query)
   }
 
 
@@ -196,7 +195,7 @@ object NEE {
       val candidate: Sentence = tree.getPortion((i, i + windowSize))
       if (! sentenceTree.keySet.exists(isSubStringOf(candidate, _)) &&
             (windowSize > 1 || (windowSize == 1 && POS.openClassPOS(tree.pos(i))))) {
-        val entities: Array[QuerySolution] = getEntities(candidate)
+        val entities: List[QuerySolution] = getEntities(candidate)
         if (! entities.isEmpty) {
           val topics = entities.map(e => e.get("?topic")).toArray
           sentenceTree += (candidate -> topics)
@@ -245,7 +244,7 @@ object NEE {
          */
         val oldDudes = oldDudesList.last
         val newCandidates: List[RDFNode] = candidates(nextSent).toList
-        val nextSteps: Array[QuerySolution] = QASystem.expandGraph(oldDudes(), out)
+        val nextSteps: List[QuerySolution] = QASystem.expandGraph(oldDudes(), out)
         val r = nextSteps.map(s => s.get("?relation"))
         val o = nextSteps.map(s => s.get("?object"))
         val c = nextSteps.map(s => s.get("?class"))
