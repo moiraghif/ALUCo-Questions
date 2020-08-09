@@ -1,6 +1,8 @@
 name := "SemanticQA";
 version := "0.1";
 
+scalacOptions := Seq("-unchecked", "-deprecation")
+
 
 scalaVersion := "2.13.3";
 

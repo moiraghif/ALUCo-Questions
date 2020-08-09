@@ -17,11 +17,49 @@ import main.constants._
 
 object DUDES {
 
+  def getTopic(candidate: DUDES.SolutionGraph, question: Sentence):
+      Option[(DUDES.MainDUDES, Sentence, Boolean)] = {
+    /**
+     * get the node closer to the topic with something to explore
+     */
+    val remainingSentences: Array[Sentence] = {
+      val sentenceIntoGraph: Set[String] = candidate.graph.nodes.map(
+        n => n.value.sentence.id).flatten.toSet
+      val sentenceToParse: Sentence = question.get(question.id.filterNot(
+                                                     i => sentenceIntoGraph.contains(i)))
+      splitIntoSubtrees(sentenceToParse)
+        .filter(sent => sent.pos.exists(POS.openClassPOS)) }
+
+    candidate.getNodes().map(n => n.value).foreach(
+      node => {
+        // sentence -[depends by]-> node
+        remainingSentences.foreach(s => {
+                                     val h = getTreeRoot(s)
+                                     val d = s.get(h).dep.head
+                                     if (node.sentence.id.contains(d)) {
+                                       if (printLog()) println(s"$node: $s")
+                                       return Some(node, s, false)
+                                     }
+                                   })
+        // node -[depends by]-> sentence
+        val head = getTreeRoot(node.sentence)
+        val dependsBy = node.sentence.get(head).dep.head
+        remainingSentences.foreach(s => {
+                                     if (s.id.contains(dependsBy)) {
+                                       if (printLog()) println(s"$node: $s")
+                                       return Some(node, s, true)
+                                     }
+                                   })
+      })
+    return None
+  }
+
   abstract class MainDUDES(val sentence: Sentence,
                            val o: Option[RDFNode] = None,
                            val r: Option[RDFNode] = None,
                            val c: Option[RDFNode] = None,
-                           val score: Double = 1.0) {
+                           val score: Double = 1.0,
+                           val dist: Int = 0) {
 
     def getObjectDUDES(): String = {
       if (o.isDefined) return s"<${o.get}>"
@@ -36,44 +74,63 @@ object DUDES {
       return s"?var_${getTreeRoot(sentence)}_class"
     }
 
-    def toRDF(prev: MainDUDES): String = getObjectDUDES()
+    def toRDF(next: MainDUDES): String = getObjectDUDES()
     def toRDF(): String = getObjectDUDES()
 
     def apply(): RDFNode = o.get
-  
-    override def toString(): String = sentence.sentence
   }
 
-  case class IncognitaDUDES(override val sentence: Sentence)
-      extends MainDUDES(sentence)
+  case class IncognitaDUDES(override val sentence: Sentence,
+                            override val dist: Int)
+      extends MainDUDES(sentence,
+                        dist = dist) {
+    override def toString(): String = s"?var_${getTreeRoot(sentence)}"
+  }
 
-  case class VariableDUDES(override val sentence: Sentence, variable: RDFNode)
-      extends MainDUDES(sentence, o = Some(variable))
+  case class VariableDUDES(override val sentence: Sentence,
+                           variable: RDFNode)
+      extends MainDUDES(sentence, o = Some(variable),
+                        dist = 0) {
+    override def toString(): String = s"<${o.get}>"
+  }
 
   case class RelationDUDES(override val sentence: Sentence,
                            rel: RDFNode,
+                           override val dist: Int,
                            override val score: Double = 1.0)
-      extends MainDUDES(sentence, r = Some(rel), score = score) {
+      extends MainDUDES(sentence, r = Some(rel),
+                        score = score, dist = dist) {
 
-    override def toRDF(prev: MainDUDES): String =
-      s"${prev.getObjectDUDES()}  ${getRelationDUDES()}  ${getObjectDUDES()} ."
+    override def toRDF(next: MainDUDES): String =
+      s"${getObjectDUDES()}  ${next.getRelationDUDES()}  ${next.getObjectDUDES()} ."
+
+    override def toString(): String = s"<${r.get}>"
+
   }
 
   case class ObjectDUDES(override val sentence: Sentence,
                          obj: RDFNode,
+                         override val dist: Int,
                          override val score: Double = 1.0)
-      extends MainDUDES(sentence, o = Some(obj), score = score) {
-    override def toRDF(prev: MainDUDES): String =
-      s"${prev.getObjectDUDES()}  ${getRelationDUDES()}  ${getObjectDUDES()} ."
+      extends MainDUDES(sentence, o = Some(obj),
+                        score = score, dist = dist) {
+    override def toRDF(next: MainDUDES): String =
+      s"${getObjectDUDES()}  ${next.getRelationDUDES()}  ${next.getObjectDUDES()} ."
+
+    override def toString(): String = s"<${o.get}>"
   }
 
   case class ClassDUDES(override val sentence: Sentence,
                         cls: RDFNode,
+                        override val dist: Int,
                         override val score: Double = 1.0)
-      extends MainDUDES(sentence, c = Some(cls), score = score) {
-    override def toRDF(prev: MainDUDES): String =
-      s"""${prev.getObjectDUDES()}  ${getRelationDUDES()}  ${getObjectDUDES()} .
+      extends MainDUDES(sentence, c = Some(cls),
+                        score = score, dist = dist) {
+    override def toRDF(next: MainDUDES): String =
+      s"""${getObjectDUDES()}  ${next.getRelationDUDES()}  ${next.getObjectDUDES()} .
          |${getObjectDUDES()}  a  ${getClassDUDES()}""".stripMargin
+
+    override def toString(): String = s"<${c.get}>"
   }
 
   class SolutionGraph(val graph: Graph[MainDUDES, DiEdge]) {
@@ -82,8 +139,11 @@ object DUDES {
     // and the direction is the same: higher is the score, more probable is the match
     val score: Double = graph.nodes.map(n => math.log(n.value.score)).sum
 
-    def getNode(dudes: DUDES.MainDUDES): Option[graph.NodeT] =
-      Some(graph.nodes.toList.filter(node => node.value == dudes).head)
+    def getNode(dudes: DUDES.MainDUDES): Option[graph.NodeT] = {
+      val out = graph.nodes.toList.filter(node => node.value == dudes)
+      if (out.isEmpty) return None
+      return Some(out.head)
+    }
 
     def getTopic(): graph.NodeT =
       /**
@@ -99,21 +159,13 @@ object DUDES {
       /**
        * get the distance of a node from the topic node
        */
-      node.value match {
-        case n: VariableDUDES => 0
-        case _ => {
-          val path = getTopic.shortestPathTo(node)
-          if (path.isDefined) path.get.length
-          else                -1
-        }
-      }
+      node.value.dist
 
     def getNodes(): List[graph.NodeT] =
       /**
        * get nodes from the closer to the more distant from the topic node
        */
       graph.nodes.toList.sortBy(getDistance)
-
 
     def addDUDES(relation: DiEdge[MainDUDES]): Option[SolutionGraph] = {
       /**
@@ -130,20 +182,43 @@ object DUDES {
       }
       return None
     }
+
+    def makeRDF(query: List[String]): String = {
+      val incognitaNodes: List[MainDUDES] = graph.nodes
+        .map(n => n.value)
+        .filter(n => n match {
+                  case n: IncognitaDUDES => true
+                  case _ => false
+                }).toList
+
+      val queryText = query.map(triple => s"  $triple").mkString("\n")
+
+      if (incognitaNodes.isEmpty)
+        return s"""ASK WHERE {
+                  |$queryText
+                  |}""".stripMargin
+      val incognita: String = incognitaNodes.map(dudes => dudes.toRDF()).mkString(" ")
+      return s"""SELECT DISTINCT $incognitaNodes WHERE {
+                |$queryText
+                |}"""
+    }
+
+    override def toString(): String = {
+      val triples = graph.edges.toList
+        .filter(e => e._2.value match {
+                  case n: IncognitaDUDES => false
+                  case _ => true
+                })
+        .map(e => e._1.value.toRDF(e._2.value))
+      return makeRDF(triples) 
+    }
+
   }
 }
 
 
 class SentenceNode(val sentence: Sentence, val rdf: Array[RDFNode] = Array[RDFNode]()) {
-  def destroy(): Array[SentenceNode] = {
-    /**
-     * transform this translation into a list of single meaningless SentenceNodes
-     */
-    val sentences = sentence.id.map(i => sentence.get(Array(i)))
-    return sentences.map(s => new SentenceNode(s))
-  }     
-
-  override def toString(): String = sentence.sentence
+  override def toString(): String = sentence.toString
 }
 
 
@@ -168,7 +243,7 @@ object QASystem {
   }
 
 
-  def exploreTreeUp(tree: Sentence, topic: Sentence): Array[Sentence] = {
+  def exploreTreeUp(tree: Sentence, topic: Sentence): List[Sentence] = {
     /**
      * get a list of candidates for the next step, starting from a TOPIC going up in the TREE
      */
@@ -176,18 +251,20 @@ object QASystem {
     val headTopic = getTreeRoot(topic)
     val headTopicPosition = headTopic.toInt - 1 
 
-    def getNext(position: Int, acc: Array[Sentence]): Array[Sentence] = {
+    def getNext(position: Int, acc: List[Sentence]): List[Sentence] = {
       val head = tree.dep(position).toInt - 1
-      if (head == headQuestion) return acc :+ tree.getPortion((head, headTopicPosition))
+      if (head == headQuestion) return acc :+ tree.getPortion((head, head + 1))
       getNext(head, acc :+ tree.getPortion((head, headTopicPosition)))
     }
-    return getNext(headTopicPosition, Array[Sentence]())
+    return getNext(headTopicPosition, List[Sentence]())
   }
 
-  def exploreTreeDown(tree: Sentence, topic: Sentence): Array[Sentence] = ???
+  def exploreTreeDown(tree: Sentence, topic: Sentence): List[Sentence] = ???
+  // add a sliding window to check all the sub-trees
 
-  def exploreTree(tree: Sentence, topic: Sentence): Array[Sentence] =
-    exploreTreeUp(tree, topic)
+  def exploreTree(tree: Sentence, topic: Sentence, up: Boolean): List[Sentence] =
+    if (up) exploreTreeUp(tree, topic)
+    else exploreTreeDown(tree, topic)
 
 
   def solve(explored: List[DUDES.SolutionGraph]): DUDES.SolutionGraph = {
@@ -200,54 +277,151 @@ object QASystem {
   def apply(question: String): String = {
     val tree: Sentence = Parser(question)
     val sentenceGraphs: List[DUDES.SolutionGraph] = NEE(tree)
+    sentenceGraphs.foreach(g => PerfectMatch(g, tree))
     return "42"
   }
 
 }
 
 
-object Match {
+object PerfectMatch {
 
-  def isInCandidate(candidate: Sentence, topic: Sentence): Boolean =
-    isSubStringOf(topic, candidate)
-
-  def getNextDUDES(candidate: DUDES.SolutionGraph, question: Sentence): Option[DUDES.MainDUDES] = {
-    /**
-     * get the node closer to the topic with something to explore
-     */
-    val remainingSentences: Array[Sentence] = {
-      val sentenceIntoGraph: Set[String] = candidate.graph.nodes.map(
-        n => n.value.sentence.id).flatten.toSet
-      val sentenceToParse: Sentence = question.get(question.id.filterNot(
-                                                     i => sentenceIntoGraph.contains(i)))
-      splitIntoSubtrees(sentenceToParse)
-        .filter(sent => sent.pos.exists(POS.openClassPOS)) }
-
-    candidate.getNodes.map(n => n.value).foreach(
-      node => {
-        // sentence -[depends by]-> node
-        remainingSentences.foreach(s => {
-                                     val h = getTreeRoot(s)
-                                     val d = s.get(h).dep.head
-                                     if (node.sentence.id.contains(d)) {
-                                       return Some(node)
-                                     }
-                                   })
-        // node -[depends by]-> sentence
-        val head = getTreeRoot(node.sentence)
-        val dependsBy = node.sentence.get(head).dep.head
-        remainingSentences.foreach(s => {
-                                     if (s.id.contains(dependsBy)) {
-                                       return Some(node)
-                                     }
-                                   })
-      })
-    return None
+  def getRelations(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean):
+      List[DUDES.SolutionGraph] = {
+    val relationsIn = KG(s"""SELECT DISTINCT ?relation ?label WHERE {
+                            |  $topic ?relation ?object.
+                            |  ?object a ?class.
+                            |  OPTIONAL { ?relation rdfs:label ?label. }
+                            |}""".stripMargin)
+      .filter(q => {
+                val ts = Lexicalization(q.get("?relation"), topic.sentence.lang)
+                ts.exists(t => t.toLowerCase == sentence.sentence.toLowerCase)
+              })
+      .map(q => q.get("?relation"))
+      .map(r => {
+             val newDudes = new DUDES.RelationDUDES(sentence, r,
+                                                    topic.dist + 1, 1.0)
+             val edge = topic ~> newDudes
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    val relationsOut = KG(s"""SELECT DISTINCT ?relation ?label WHERE {
+                             |  ?object ?relation $topic.
+                             |  ?object a ?class.
+                             |  OPTIONAL { ?relation rdfs:label ?label. }
+                             |}""".stripMargin)
+      .filter(q => {
+                val ts = Lexicalization(q.get("?relation"), topic.sentence.lang)
+                ts.exists(t => t.toLowerCase == sentence.sentence.toLowerCase)
+              })
+      .map(q => q.get("?relation"))
+      .map(r => {
+             val newDudes = new DUDES.RelationDUDES(sentence, r,
+                                                    topic.dist + 1, 1.0)
+             val edge = newDudes ~> topic
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    return (relationsIn ++ relationsOut).toList
   }
 
-  def perfectMatch(candidate: DUDES.SolutionGraph, question: Sentence): DUDES.SolutionGraph = {
-
-
-    return candidate
+  def getObjects(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean):
+      List[DUDES.SolutionGraph] = {
+    val objectsIn = KG(s"""SELECT DISTINCT ?object ?label WHERE {
+                          |  $topic ?relation ?object.
+                          |  ?object a ?class.
+                          |  OPTIONAL { ?object rdfs:label ?label. }
+                          |}""".stripMargin)
+      .filter(q => {
+                val ts = Lexicalization(q.get("?object"), topic.sentence.lang)
+                ts.exists(t => t.toLowerCase == sentence.sentence.toLowerCase)
+              })
+      .map(q => q.get("?object"))
+      .map(o => {
+             val newDudes = new DUDES.ObjectDUDES(sentence, o,
+                                                  topic.dist + 1, 1.0)
+             val edge = topic ~> newDudes
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    val objectsOut = KG(s"""SELECT DISTINCT ?object ?label WHERE {
+                           |  ?object ?relation $topic.
+                           |  ?object a ?class.
+                           |  OPTIONAL { ?object rdfs:label ?label. }
+                           |}""".stripMargin)
+      .filter(q => {
+                val ts = Lexicalization(q.get("?object"), topic.sentence.lang)
+                ts.exists(t => t.toLowerCase == sentence.sentence.toLowerCase)
+              })
+      .map(q => q.get("?object"))
+      .map(o => {
+             val newDudes = new DUDES.ObjectDUDES(sentence, o,
+                                                  topic.dist + 1, 1.0)
+             val edge = newDudes ~> topic
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    return (objectsIn ++ objectsOut).toList
   }
+
+  def getClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean):
+      List[DUDES.SolutionGraph] = {
+    val classesIn = KG(s"""SELECT DISTINCT ?class ?label WHERE {
+                          |  $topic ?relation ?object.
+                          |  ?object a ?class.
+                          |  OPTIONAL { ?class rdfs:label ?label. } 
+                          |}""".stripMargin)
+      .filter(q => {
+                val ts = Lexicalization(q.get("?class"), topic.sentence.lang)
+                ts.exists(t => t.toLowerCase == sentence.sentence.toLowerCase)
+              })
+      .map(q => q.get("?class"))
+      .map(c => {
+             val newDudes = new DUDES.ClassDUDES(sentence, c,
+                                                 topic.dist + 1, 1.0)
+             val edge = topic ~> newDudes
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    val classesOut = KG(s"""SELECT DISTINCT ?class ?label WHERE {
+                           |  ?object ?relation $topic.
+                           |  ?object a ?class.
+                           |  OPTIONAL { ?class rdfs:label ?label. }
+                           |}""".stripMargin)
+      .filter(q => {
+                val ts = Lexicalization(q.get("?class"), topic.sentence.lang)
+                ts.exists(t => t.toLowerCase == sentence.sentence.toLowerCase)
+              })
+      .map(q => q.get("?class"))
+      .map(c => {
+             val newDudes = new DUDES.ClassDUDES(sentence, c,
+                                                 topic.dist + 1, 1.0)
+             val edge = newDudes ~> topic
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    return (classesIn ++ classesOut).toList
+  }
+  
+
+  def apply(candidate: DUDES.SolutionGraph, question: Sentence): List[DUDES.SolutionGraph] = {
+    val getTopicResults = DUDES.getTopic(candidate, question)
+    if (! getTopicResults.isDefined) return List[DUDES.SolutionGraph]()
+    val (topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean) = getTopicResults.get
+    val nextStepTree: Sentence = QASystem.exploreTree(sentence + topic.sentence,
+                                                      topic.sentence,
+                                                      up).head
+    val out = getRelations(candidate, topic, nextStepTree, up) ++
+      getObjects(candidate, topic, nextStepTree, up) ++
+      getClasses(candidate, topic, nextStepTree, up)
+    if (printLog()) out.foreach(println)
+    return out
+  }
+
 }

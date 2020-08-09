@@ -112,103 +112,27 @@ object Lexicalization {
     return lang == "@" + language 
   }
 
-  def apply(node: RDFNode, language: String): String = {
+  def apply(node: RDFNode, language: String): List[String] = {
     /**
      * translate a result into text: translate a NODE into a string taking
      * either the (cleaned) label, if available, or trying a lexicalization from
      * the URI 
      */
-     val labelQuery = s"""SELECT DISTINCT ?label WHERE {
+    return List(cleanUri(node))
+    val labelQuery = s"""SELECT DISTINCT ?label WHERE {
                         |  <$node>  rdfs:label  ?label
                         |}""".stripMargin
-    val labels = KG(labelQuery).toArray.filter(
-      s => filterLanguage(s.get("?label"), language))
-    if (labels.isEmpty) return cleanText(cleanUri(node))
-    val label = labels.head.get("?label")
-    val out = label match {
-      case null => cleanLabel(label)
-      case _    => cleanUri(node)
-    }
-    return cleanText(out)
+    return cleanText(node.toString) +: KG(labelQuery)
+      .filter(q => filterLanguage(q.get("?label"), language))
+      .map(q => cleanLabel(q.get("?label")))
+      .toList
   }
-  def apply(node: QuerySolution, variable: String, language: String): String = apply(node.get(s"?$variable"), language)
+  def apply(node: QuerySolution, variable: String, language: String): List[String] =
+    apply(node.get(s"?$variable"), language)
 }
 
 
 object NEE {
-  /*
-  class NLPGraph(val graph: Graph[SentenceNode, DiEdge]) {
-    // A ~> B  =>  A dependsOn B
-    def getNodes(): Set[SentenceNode] = graph.nodes.toList.map(n => n.value).toSet
-    def getValue(node: graph.NodeT): SentenceNode = node.value
-
-    def getHead(startNode: graph.NodeT = graph.nodes.head): graph.NodeT = {
-      val nextNodes = startNode.edges.filter(n => n._2 == startNode).map(_._1)
-      if (nextNodes.isEmpty) return startNode
-      return getHead(nextNodes.head)
-    }
-
-    def getNode(node: SentenceNode): Option[graph.NodeT] =
-      Option(graph.nodes.toList.filter(n => n.value == node).head)
-    def getNode(s: Sentence): Option[graph.NodeT] =
-      Option(graph.nodes.toList.filter(n => n.value.sentence == s).head)
-
-    def getRDFTranslations(): List[graph.NodeT] = {
-      val nodes = graph.nodes.toList.filter(n => n.value.rdf.isDefined)
-      val head = getHead()
-      return nodes.sortBy(n => head.shortestPathTo(n).get.length).reverse
-    }
-
-    def areConsecutive(node1: graph.NodeT, node2: graph.NodeT): Boolean =
-      node1.edges.toSet.contains(node1~>node2) || node1.edges.toSet.contains(node2~>node1)
-    def areConsecutive(sent1: Sentence, sent2: Sentence): Boolean = {
-      val node1 = getNode(sent1)
-      val node2 = getNode(sent2)
-      if (node1.isDefined && node2.isDefined) return areConsecutive(node1.get, node2.get)
-      return false
-    }
-
-    def contains(node: graph.NodeT): Boolean = contains(node.value)
-    def contains(node: SentenceNode): Boolean = getNodes().contains(node)
-    def contains(sentence: Sentence): Boolean = getNode(sentence).isDefined
-    def contains(node: RDFNode): Boolean = getNodes().exists(n => n.rdf.contains(node))
-
-    override def toString(): String = {
-      val nodes = getNodes().toArray
-      val nodesSorted = nodes.sortBy(n => n.sentence.id.head.toInt)
-      return nodesSorted.map(_.toString).mkString(" ")
-    }
-  }
-
-  def createGraph(nodes: Array[SentenceNode]): NLPGraph = {
-    val getNode = (id: String) => nodes.filter(n => n.sentence.id.contains(id))
-    val headOf = (s: Sentence) => {
-      val rootId = getTreeRoot(s)
-      val rootIndex = s.id.indexOf(rootId)
-      getNode(s.dep(rootIndex))
-    }
-
-    def getEdges(toProcess: Array[SentenceNode], acc: Array[DiEdge[SentenceNode]] = Array[DiEdge[SentenceNode]]()): List[DiEdge[SentenceNode]] = {
-      if (toProcess.isEmpty) return acc.toList
-      val current = toProcess.head
-      val head = headOf(current.sentence)
-      if (head.isEmpty) return getEdges(toProcess.tail, acc)
-      return getEdges(toProcess.tail, acc :+ head.head~>current)
-    }
-
-    return new NLPGraph(Graph.from(nodes, getEdges(nodes)))
-  }
-
-  def sentenceToGraph(sentences: Map[Sentence, Array[RDFNode]]): NLPGraph = {
-    val nodesList: List[SentenceNode] = sentences.map(
-        kv => {
-          val sentence = kv._1
-          val candidates = kv._2
-          new SentenceNode(sentence, candidates)
-        }).toList
-    return createGraph(nodesList.toArray)
-  }
-   */
 
   def getWithLanguage(variable: String, label: String, lang: String): String =
     /**
@@ -232,7 +156,7 @@ object NEE {
       return Array[QuerySolution]()
 
     // other strings are analyzed in order to search for combinations of upper/lower cases
-    if (printLog()) println("checking: \"" + subTree.sentence + "\"")
+    if (printLog()) println(s"checking: $subTree")
     val query = "SELECT DISTINCT ?topic WHERE {\n" + 
       binaryPermutations(subTree.length).map(
         candidatePerm => {
@@ -247,7 +171,8 @@ object NEE {
   }
 
 
-  def slidingWindow(tree: Sentence, maxSize: Int = getConfig("maximumWindow").toInt): Map[Sentence, Array[RDFNode]] = {
+  def slidingWindow(tree: Sentence, maxSize: Int = getConfig("maximumWindow").toInt):
+      Map[Sentence, Array[RDFNode]] = {
     /**
      * use a sliding window to get a set of candiadtes for a TREE; window size
      * can be set with the parameter MAXSIZE
@@ -268,7 +193,7 @@ object NEE {
     if (printLog()) {
       println("")
       sentenceTree.foreach(i =>
-        println(s"${i._1.sentence}: \n" + i._2.map(i => s" - $i").mkString("\n") + "\n"))
+        println(s"${i._1}: \n" + i._2.map(i => s" - $i").mkString("\n") + "\n"))
     }
     return sentenceTree.toMap
   }
@@ -285,12 +210,12 @@ object NEE {
 
     def areConsecutive(sent1: Sentence, sent2: Sentence): Boolean = {
       val check = (s1: Sentence, s2: Sentence)
-        => !s2.dep.intersect(s1.id).isEmpty
+      => !s2.dep.intersect(s1.id).isEmpty
       return check(sent1, sent2) || check(sent2, sent1)
     }
 
-    def filter(nodes: Map[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]],
-             i: Int = 0): Map[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]] = {
+    def filter(nodes: Map[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]], i: Int = 0):
+        Map[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]] = {
       if (i >= parsingOrder.length)  // end of the list
         return nodes
       val sent = parsingOrder(i)
@@ -308,26 +233,25 @@ object NEE {
         val oldDudes = oldDudesList.last
         val newCandidates: List[RDFNode] = candidates(nextSent).toList
         val nextSteps: Array[QuerySolution] = QASystem.expandGraph(oldDudes(), out)
-        println(oldDudes.toRDF)
         val r = nextSteps.map(s => s.get("?relation"))
         val o = nextSteps.map(s => s.get("?object"))
         val c = nextSteps.map(s => s.get("?class"))
         newCandidates.map(rdf => {
-          if (r.contains(rdf)) {
-            val newDudes = new DUDES.RelationDUDES(nextSent, rdf)
-            if (out) (Some(newDudes), Some(oldDudes ~> newDudes))
-            else     (Some(newDudes), Some(newDudes ~> oldDudes))
-          } else if (o.contains(rdf)) {
-            val newDudes = new DUDES.ObjectDUDES(nextSent, rdf)
-            if (out) (Some(newDudes), Some(oldDudes ~> newDudes))
-            else     (Some(newDudes), Some(newDudes ~> oldDudes))
-          } else if (c.contains(rdf)) {
-            val newDudes = new DUDES.ClassDUDES(nextSent, rdf)
-            if (out) (Some(newDudes), Some(oldDudes ~> newDudes))
-            else     (Some(newDudes), Some(newDudes ~> oldDudes))
-          } else (None, None)
-        }).filter(kv => kv._1.isDefined)
-          .map(kv => (oldDudesList :+ kv._1.get, oldEdges :+ kv._2.get))
+                            if (r.contains(rdf)) {
+                              val newDudes = new DUDES.RelationDUDES(nextSent, rdf, i + 1)
+                              if (out) Some(newDudes, oldDudes ~> newDudes)
+                              else     Some(newDudes, newDudes ~> oldDudes)
+                            } else if (o.contains(rdf)) {
+                              val newDudes = new DUDES.ObjectDUDES(nextSent, rdf, i + 1)
+                              if (out) Some(newDudes, oldDudes ~> newDudes)
+                              else     Some(newDudes, newDudes ~> oldDudes)
+                            } else if (c.contains(rdf)) {
+                              val newDudes = new DUDES.ClassDUDES(nextSent, rdf, i + 1)
+                              if (out) Some(newDudes, oldDudes ~> newDudes)
+                              else     Some(newDudes, newDudes ~> oldDudes)
+                            } else None
+                          }).filter(kv => kv.isDefined)
+          .map(kv => (oldDudesList :+ kv.get._1, oldEdges :+ kv.get._2))
           .toMap
       }
 
@@ -335,7 +259,7 @@ object NEE {
                             val oldDudes = kv._1
                             val oldEdges = kv._2
                             getNexts(oldDudes, oldEdges, true) ++
-                              getNexts(oldDudes, oldEdges, false)
+                            getNexts(oldDudes, oldEdges, false)
                           })
         .toList.flatten.toMap
         .filter(kv => ! kv._2.isEmpty)
@@ -347,19 +271,9 @@ object NEE {
       new DUDES.VariableDUDES(parsingOrder.head, rdf))
       .map(d => (List(d), List[DiEdge[DUDES.MainDUDES]]()))
       .toMap[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]]
-
     val dudes = filter(topicDUDES)
 
-    if (printLog()) {
-      println("Disambiguation results:")
-      for (kv <- dudes) {
-        val dude = kv._1
-        val links = kv._2
-        println(s"- $dude : $links")
-      }
-    }
-
-    return dudes.map(
+    val out = dudes.map(
       kv => {
         val dudes = kv._1
         val edges = kv._2
@@ -370,8 +284,12 @@ object NEE {
         val graph = Graph.from(dudes, edges)
         new DUDES.SolutionGraph(graph)
       }).toList
+    if(printLog()) {
+      out.foreach(println)
+      println("\n\n")
+    }
+    return out
   }
-
 
   def apply(tree: Sentence): List[DUDES.SolutionGraph] = {
     /**

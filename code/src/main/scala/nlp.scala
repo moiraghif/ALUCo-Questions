@@ -76,7 +76,16 @@ class Sentence(tree: Map[String, Array[String]], val lang: String) {
       "dep"   -> dep,
       "link"  -> link)
 
-  override def toString(): String = {
+  def + (other: Sentence): Sentence = {
+    val sentences: Array[Sentence] = (id.map(i => get(i)) ++
+      other.id.map(i => other.get(i))).sortBy(s => s.id.head.toInt) 
+    val tree: Map[String, Array[String]] = getTree().keySet.map(k => {
+                                                        (k, sentences.map(s => s.getTree()(k)).flatten)
+                                                      }).toMap[String, Array[String]]
+    new Sentence(tree, lang)
+  }
+
+  def toTable(): String = {
     /**
      * print the Sentence as a table
      */
@@ -94,6 +103,7 @@ class Sentence(tree: Map[String, Array[String]], val lang: String) {
         " |").mkString("\n")
   }
 
+  override def toString(): String = sentence
 }
 
 
@@ -205,7 +215,7 @@ object Parser {
      */
     val lang = getLanguage(text)
     val tree = getTree(text, lang)
-    if (printLog()) println(tree.toString)
+    if (printLog()) println(tree.toTable())
     return tree
   }
 }
