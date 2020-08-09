@@ -226,7 +226,8 @@ object POS {
    * a more linguistic part
    */
   // from: http://universaldependencies.org/docs/u/pos/index.html
-  val openPOS: Array[String]  = Array("ADJ", "ADV", "INTJ", "NOUN", "PROPN", "VERB")
+  val openPOS: Array[String]  = Array("ADJ", "ADV", "INTJ", "NOUN", "PROPN", "VERB",
+                                 "PRON")  // to add the IncognitaDUDES 
 
   def openClassPOS(pos: String): Boolean = openPOS.contains(pos)
   def closedClassPOS(pos: String): Boolean = ! openClassPOS(pos)
