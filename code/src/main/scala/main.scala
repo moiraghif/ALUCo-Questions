@@ -7,6 +7,8 @@ import scala.io.StdIn
 
 object Main {
 
+  // data to compare:
+  // https://github.com/ag-sc/QALD
   def printSolution(question: String): Unit = {
     val solution = QASystem(question)
     println(s"\n => \n$solution")

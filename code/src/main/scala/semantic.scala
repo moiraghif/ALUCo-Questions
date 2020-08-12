@@ -80,9 +80,13 @@ object QASystem {
     val headTopicPosition = headTopic.toInt - 1 
 
     def getNext(position: Int, acc: List[Sentence]): List[Sentence] = {
-      val head = tree.dep(position).toInt - 1
-      if (head == headQuestion) return acc :+ tree.getPortion((head, head + 1))
-      getNext(head, acc :+ tree.getPortion((head, headTopicPosition)))
+      try {
+        val head = tree.dep(position).toInt - 1
+        if (head == headQuestion) return acc :+ tree.getPortion((head, head + 1))
+        getNext(head, acc :+ tree.getPortion((head, headTopicPosition)))
+      } catch {
+        case e: java.lang.ArrayIndexOutOfBoundsException => acc 
+      }
     }
     return getNext(headTopicPosition, List[Sentence]())
   }

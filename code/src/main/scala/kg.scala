@@ -228,7 +228,7 @@ object NEE {
 
     def filter(nodes: Map[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]], i: Int = 0):
         Map[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]] = {
-      if (i >= parsingOrder.length)  // end of the list
+      if (i >= parsingOrder.length - 1)  // end of the list
         return nodes
       val sent = parsingOrder(i)
       val nextSent = parsingOrder(i + 1)
@@ -243,6 +243,7 @@ object NEE {
          * to a new candidate (from newCandidates)
          */
         val oldDudes = oldDudesList.last
+        if (! oldDudes.o.isDefined) return nodes
         val newCandidates: List[RDFNode] = candidates(nextSent).toList
         val nextSteps: List[QuerySolution] = QASystem.expandGraph(oldDudes(), out)
         val r = nextSteps.map(s => s.get("?relation"))
