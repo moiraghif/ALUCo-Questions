@@ -29,7 +29,6 @@ object QASystem {
       .filter(g => g.score == maxScore)
       .sortBy(g => g.length)
       .last
-
     val getTopicResults = DUDES.getTopic(bestCandidate, question)
     if (! getTopicResults.isDefined) {  // the best graph is completed, no need to explore further
       if (printLog()) println(s"\n\nSOLUTION FOUND: $question\n\n$bestCandidate")
@@ -39,16 +38,61 @@ object QASystem {
     val nextSteps: List[Sentence] = exploreTree(sentence + topic.sentence,
                                              topic.sentence,
                                              up)
-    println(s"checking from $topic:"); nextSteps.foreach(println)
+    if (printLog())
+      println(s"checking from $topic:"); nextSteps.foreach(println)
+
+    val bestCandidateLexicalization: Map[String, Map[RDFNode, List[String]]] = Map(
+      "relation_in" -> Lexicalization(
+        KG(s"""SELECT DISTINCT ?relation ?relation_label WHERE {
+              |  $topic ?relation ?object.
+              |  ?object a ?class.
+              |  OPTIONAL { ?relation rdfs:label ?relation_label. }
+              |}""".stripMargin), sentence.lang, "relation"),
+      "relation_out" -> Lexicalization(
+        KG(s"""SELECT DISTINCT ?relation ?relation_label WHERE {
+              |  ?object ?relation $topic.
+              |  ?object a ?class.
+              |  OPTIONAL { ?relation rdfs:label ?relation_label. }
+              |}""".stripMargin), sentence.lang, "relation"),
+      "object_in" -> Lexicalization(
+        KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
+              |  $topic ?relation ?object.
+              |  ?object a ?class.
+              |  OPTIONAL { ?object rdfs:label ?object_label. }
+              |}""".stripMargin), sentence.lang, "object"),
+      "object_out" -> Lexicalization(
+        KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
+              |  ?object ?relation $topic.
+              |  ?object a ?class.
+              |  OPTIONAL { ?object rdfs:label ?object_label. }
+              |}""".stripMargin), sentence.lang, "object"),
+      "class_in" -> Lexicalization(
+        KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
+              |  $topic ?relation ?object.
+              |  ?object a ?class.
+              |  OPTIONAL { ?class rdfs:label ?class_label. } 
+              |}""".stripMargin), sentence.lang, "class"),
+      "class_out" -> Lexicalization(
+        KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
+              |  ?object ?relation $topic.
+              |  ?object a ?class.
+              |  OPTIONAL { ?class rdfs:label ?class_label. }
+              |}""".stripMargin), sentence.lang, "class"))
+
 
     val perfectMatches: List[DUDES.SolutionGraph] = nextSteps.map(
-      next => PerfectMatch(bestCandidate, topic, next, up)).flatten
+      next => PerfectMatch(bestCandidate, topic, bestCandidateLexicalization, next)).flatten
 
     if (perfectMatches.isEmpty) {
-      println("No solutions with perfect-matches")
+      if (printLog())
+        println("Computing fuzzy matches...")
+
+      val fuzzyMatches: List[DUDES.SolutionGraph] = nextSteps.map(
+        next => FuzzyMatch(bestCandidate, topic, bestCandidateLexicalization, next)).flatten
+
+      return solve(candidates.filter(c => c != bestCandidate) ++ fuzzyMatches,
+                   question)
     }
-
-
     return solve(candidates.filter(c => c != bestCandidate) ++ perfectMatches,
                  question)
   }
@@ -138,14 +182,10 @@ object PerfectMatch {
   def perfectMatch(candidate: String, possibilities: List[String]): Boolean =
     possibilities.map(p => p.toLowerCase()).contains(candidate.toLowerCase())
 
-  def getRelations(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean):
+  def getRelations(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
+                 lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
       List[DUDES.SolutionGraph] = {
-    val relationsIn = Lexicalization(
-      KG(s"""SELECT DISTINCT ?relation ?relation_label WHERE {
-            |  $topic ?relation ?object.
-            |  ?object a ?class.
-            |  OPTIONAL { ?relation rdfs:label ?relation_label. }
-            |}""".stripMargin), sentence.lang, "relation")
+    val relationsIn = lexicon("relation_in")
       .filter(kv => perfectMatch(sentence.sentence, kv._2))
       .map(kv => kv._1)
       .map(r => {
@@ -156,12 +196,7 @@ object PerfectMatch {
            })
       .filter(g => g.isDefined)
       .map(g => g.get)
-    val relationsOut = Lexicalization(
-      KG(s"""SELECT DISTINCT ?relation ?relation_label WHERE {
-            |  ?object ?relation $topic.
-            |  ?object a ?class.
-            |  OPTIONAL { ?relation rdfs:label ?relation_label. }
-            |}""".stripMargin), sentence.lang, "relation")
+    val relationsOut = lexicon("relation_out")
       .filter(kv => perfectMatch(sentence.sentence, kv._2))
       .map(kv => kv._1)
       .map(r => {
@@ -175,14 +210,10 @@ object PerfectMatch {
     return (relationsIn ++ relationsOut).toList
   }
 
-  def getObjects(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean):
+  def getObjects(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
+               lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
       List[DUDES.SolutionGraph] = {
-    val objectsIn = Lexicalization(
-      KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
-            |  $topic ?relation ?object.
-            |  ?object a ?class.
-            |  OPTIONAL { ?object rdfs:label ?object_label. }
-            |}""".stripMargin), sentence.lang, "object")
+    val objectsIn = lexicon("object_in")
       .filter(kv => perfectMatch(sentence.sentence, kv._2))
       .map(kv => kv._1)
       .map(o => {
@@ -193,12 +224,7 @@ object PerfectMatch {
            })
       .filter(g => g.isDefined)
       .map(g => g.get)
-    val objectsOut = Lexicalization(
-      KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
-            |  ?object ?relation $topic.
-            |  ?object a ?class.
-            |  OPTIONAL { ?object rdfs:label ?object_label. }
-            |}""".stripMargin), sentence.lang, "object")
+    val objectsOut = lexicon("object_out")
       .filter(kv => perfectMatch(sentence.sentence, kv._2))
       .map(kv => kv._1)
       .map(o => {
@@ -212,14 +238,10 @@ object PerfectMatch {
     return (objectsIn ++ objectsOut).toList
   }
 
-  def getClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean):
+  def getClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
+               lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
       List[DUDES.SolutionGraph] = {
-    val classesIn = Lexicalization(
-      KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
-            |  $topic ?relation ?object.
-            |  ?object a ?class.
-            |  OPTIONAL { ?class rdfs:label ?class_label. } 
-            |}""".stripMargin), sentence.lang, "class")
+    val classesIn = lexicon("class_in")
       .filter(kv => perfectMatch(sentence.sentence, kv._2))
       .map(kv => kv._1)
       .map(c => {
@@ -230,12 +252,7 @@ object PerfectMatch {
            })
       .filter(g => g.isDefined)
       .map(g => g.get)
-    val classesOut = Lexicalization(
-      KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
-            |  ?object ?relation $topic.
-            |  ?object a ?class.
-            |  OPTIONAL { ?class rdfs:label ?class_label. }
-            |}""".stripMargin), sentence.lang, "class")
+    val classesOut = lexicon("class_out")
       .filter(kv => perfectMatch(sentence.sentence, kv._2))
       .map(kv => kv._1)
       .map(c => {
@@ -250,7 +267,8 @@ object PerfectMatch {
   }
   
 
-  def apply(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, nextStepTree: Sentence, up: Boolean):
+  def apply(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
+          lexicon: Map[String, Map[RDFNode, List[String]]], nextStepTree: Sentence):
       List[DUDES.SolutionGraph] = {
     if ((nextStepTree.length == 1 &&  // if the nextStep is a interrogative pronoun
           nextStepTree.pos.head == "PRON" &&
@@ -260,11 +278,33 @@ object PerfectMatch {
       val newSolution = candidate.addDUDES(topic ~> newDudes)
       if (newSolution.isDefined) return List(newSolution.get)
     }
-    val out = getRelations(candidate, topic, nextStepTree, up) ++
-      getObjects(candidate, topic, nextStepTree, up) ++
-      getClasses(candidate, topic, nextStepTree, up)
+    val out = getRelations(candidate, topic, lexicon, nextStepTree) ++
+      getObjects(candidate, topic, lexicon, nextStepTree) ++
+      getClasses(candidate, topic, lexicon, nextStepTree)
     if (printLog()) out.foreach(println)
     return out
   }
 
+}
+
+object FuzzyMatch {
+  def getRelations(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
+                 lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
+      List[DUDES.SolutionGraph] = ???
+  def getObjects(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
+                 lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
+      List[DUDES.SolutionGraph] = ???
+  def getClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
+                 lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
+      List[DUDES.SolutionGraph] = ???
+
+  def apply(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
+          lexicon: Map[String, Map[RDFNode, List[String]]], nextStepTree: Sentence):
+      List[DUDES.SolutionGraph] = {
+    return List(candidate)
+    val out = (getRelations(candidate, topic, lexicon, nextStepTree) ++
+                 getObjects(candidate, topic, lexicon, nextStepTree) ++
+                 getClasses(candidate, topic, lexicon, nextStepTree))
+    return out.filter(g => g.score > 0)
+  }
 }
