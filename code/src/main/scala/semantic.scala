@@ -24,14 +24,15 @@ object QASystem {
       if (printLog()) println("No solution found")
       return None
     }
-    val maxScore: Double = candidates.map(g => g.score).max
+    val maxScore: Double = candidates.map(g => g.score).maxBy(math.exp)
     val bestCandidate: DUDES.SolutionGraph = candidates
       .filter(g => g.score == maxScore)
       .sortBy(g => g.length)
       .last
     val getTopicResults = DUDES.getTopic(bestCandidate, question)
     if (! getTopicResults.isDefined) {  // the best graph is completed, no need to explore further
-      if (printLog()) println(s"\n\nSOLUTION FOUND: $question\n\n$bestCandidate")
+      if (printLog()) println(s"\n\nSOLUTION FOUND [${math.exp(bestCandidate.score)}]: $question\n\n$bestCandidate")
+
       return Some(bestCandidate)
     }
     val (topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean) = getTopicResults.get
@@ -290,21 +291,89 @@ object PerfectMatch {
 object FuzzyMatch {
   def getRelations(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
                  lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
-      List[DUDES.SolutionGraph] = ???
+      List[DUDES.SolutionGraph] =  {
+    val scores: Map[RDFNode, Double] = Encoder(lexicon("relation_in") ++ lexicon("relation_out"),
+                                               sentence,
+                                               topic.sentence)
+    val relationsIn = lexicon("relation_in")
+      .map(kv => {
+             val newDudes = new DUDES.RelationDUDES(sentence, kv._1,
+                                                    topic.dist + 1, scores(kv._1))
+             val edge = topic ~> newDudes
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    val relationsOut = lexicon("relation_out")
+      .map(kv => {
+             val newDudes = new DUDES.RelationDUDES(sentence, kv._1,
+                                                    topic.dist + 1, scores(kv._1))
+             val edge = newDudes ~> topic
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    return (relationsIn ++ relationsOut).toList
+  }
   def getObjects(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
                  lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
-      List[DUDES.SolutionGraph] = ???
+      List[DUDES.SolutionGraph] = {
+    val scores: Map[RDFNode, Double] = Encoder(lexicon("object_in") ++ lexicon("object_out"),
+                                               sentence,
+                                               topic.sentence)
+    val objectsIn = lexicon("object_in")
+      .map(kv => {
+             val newDudes = new DUDES.ObjectDUDES(sentence, kv._1,
+                                                  topic.dist + 1, scores(kv._1))
+             val edge = topic ~> newDudes
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    val objectsOut = lexicon("object_out")
+      .map(kv => {
+             val newDudes = new DUDES.ObjectDUDES(sentence, kv._1,
+                                                  topic.dist + 1, scores(kv._1))
+             val edge = newDudes ~> topic
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    return (objectsIn ++ objectsOut).toList
+  }
   def getClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
                  lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
-      List[DUDES.SolutionGraph] = ???
+      List[DUDES.SolutionGraph] = {
+    val scores: Map[RDFNode, Double] = Encoder(lexicon("class_in") ++ lexicon("class_out"),
+                                               sentence,
+                                               topic.sentence)
+    val classesIn = lexicon("class_in")
+      .map(kv => {
+             val newDudes = new DUDES.ClassDUDES(sentence, kv._1,
+                                                 topic.dist + 1, scores(kv._1))
+             val edge = topic ~> newDudes
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    val classesOut = lexicon("class_out")
+      .map(kv => {
+             val newDudes = new DUDES.ClassDUDES(sentence, kv._1,
+                                                 topic.dist + 1, scores(kv._1))
+             val edge = newDudes ~> topic
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    return (classesIn ++ classesOut).toList
+  }
 
   def apply(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
           lexicon: Map[String, Map[RDFNode, List[String]]], nextStepTree: Sentence):
       List[DUDES.SolutionGraph] = {
-    return List(candidate)
     val out = (getRelations(candidate, topic, lexicon, nextStepTree) ++
                  getObjects(candidate, topic, lexicon, nextStepTree) ++
                  getClasses(candidate, topic, lexicon, nextStepTree))
-    return out.filter(g => g.score > 0)
+    return out.filter(g => math.exp(g.score) > 0)
   }
 }

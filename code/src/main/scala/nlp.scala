@@ -15,6 +15,7 @@ import cz.cuni.mff.ufal.udpipe.{
   Model,
   Pipeline }
 import org.apache.jena.query.QuerySolution
+import org.apache.jena.rdf.model.RDFNode
 import spray.json._
 import DefaultJsonProtocol._
 
@@ -241,9 +242,10 @@ object Encoder {
    * contextualize the meaning (so that the attention mechanism works does a
    * better job)
    */
-  def getScores(candidate: Array[Sentence],
-              substring: String,
-              sentence: String = ""): Map[Sentence, Double] = {
+  def getScores(candidate: Map[RDFNode, List[String]],
+              labels: List[String],
+              substring: Sentence,
+              sentence: Sentence): Map[RDFNode, Double] = {
     /**
      * get the scores
      */
@@ -251,7 +253,7 @@ object Encoder {
                             |    "substring": "${substring}",
                             |    "sentence": "${sentence}",
                             |    "candidates": """.stripMargin +
-      "[" + candidate.map(c => s""" "${c.toString}" """).mkString(",") + "]\n}"
+      "[" + labels.map(c => s""" "$c" """).mkString(",") + "]\n}"
     /* e.g. of input
      * {
      *   "substring": "substring to compare",
@@ -269,30 +271,38 @@ object Encoder {
       val sim = request
         .parseJson
         .convertTo[Map[String, Double]]
-      val scores: Array[(Sentence, Double)] = candidate.map(c =>
-        (c, sim.getOrElse(c.toString, -1.toDouble)))
-      return scores.toMap
+      val out = candidate
+        .map(kv =>
+          (kv._1, kv._2.map(label => sim.getOrElse(label, -1.0)).max))
+        .toMap[RDFNode, Double]
+      return out
     } catch {
       case e: Throwable => {
+        // println(jsonIn)
         println("Exception occurred! server log:")
         println(request.toString)
-        return candidate.map(c => (c -> -999.toDouble)).toMap
+        return candidate.map(kv => (kv._1, -1.0))
       }
     }
   }
 
-  def apply(candidate: Array[Sentence],
-          topic: Sentence,
-          relation: String,
-          softmax: Boolean = false): Array[(Sentence, Double)] = {
-    /**
-     * if desired, return the results using the SOFTMAX function
-     */
-    val scores = getScores(candidate, relation).toArray
-    if (softmax) {
-      val scoresSum = scores.map(s => math.exp(s._2)).sum
-      return scores.map(s => (s._1, math.exp(s._2) / scoresSum)).sortBy(_._2)
-    }
-    return  scores.sortBy(_._2)
+  def apply(candidate: Map[RDFNode, List[String]],
+          substring: Sentence,
+          sentence: Sentence): Map[RDFNode, Double] = {
+    val out =  scala.collection.mutable.Map[RDFNode, Double]()
+    candidate.keySet.foreach(node => out(node) = -1.0)
+    val uniqueCandidates = candidate.map(kv => kv._2).flatten.toSet.toList
+    val n = (uniqueCandidates.length / 1000.0).ceil.toInt
+    (0 until n).foreach(i => {
+                      val limInf = i * 1000
+                      val limSup = math.min((i + 1) * 1000, uniqueCandidates.length) 
+                      val labels = uniqueCandidates.slice(limInf, limSup)
+                      val temp = getScores(candidate, labels, substring, sentence)
+                      candidate.keySet.foreach(node => {
+                                                 if (out(node) < temp(node))
+                                                   out(node) = temp(node)
+                                               })
+                 })
+    return out.toMap
   }
 }

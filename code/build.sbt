@@ -15,7 +15,7 @@ val graphVersion = "1.13.2"
 
 // JSON parser
 libraryDependencies += "io.spray" %%  "spray-json" % jsonVersion;
-libraryDependencies += "org.scalaj" % "scalaj-http_2.12" % scalajVersion;
+libraryDependencies += "org.scalaj" % "scalaj-http_2.13" % scalajVersion;
 
 
 // Apache Jena
