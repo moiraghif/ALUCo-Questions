@@ -245,7 +245,7 @@ object Encoder {
   def getScores(candidate: Map[RDFNode, List[String]],
               labels: List[String],
               substring: Sentence,
-              sentence: Sentence): Map[RDFNode, Double] = {
+              sentence: String): Map[RDFNode, Double] = {
     /**
      * get the scores
      */
@@ -278,7 +278,7 @@ object Encoder {
       return out
     } catch {
       case e: Throwable => {
-        // println(jsonIn)
+        println(jsonIn)
         println("Exception occurred! server log:")
         println(request.toString)
         return candidate.map(kv => (kv._1, -1.0))
@@ -288,14 +288,15 @@ object Encoder {
 
   def apply(candidate: Map[RDFNode, List[String]],
           substring: Sentence,
-          sentence: Sentence): Map[RDFNode, Double] = {
+          sentence: String): Map[RDFNode, Double] = {
     val out =  scala.collection.mutable.Map[RDFNode, Double]()
     candidate.keySet.foreach(node => out(node) = -1.0)
     val uniqueCandidates = candidate.map(kv => kv._2).flatten.toSet.toList
-    val n = (uniqueCandidates.length / 1000.0).ceil.toInt
+    val batchSize = 1000
+    val n = (uniqueCandidates.length / batchSize.toDouble).ceil.toInt
     (0 until n).foreach(i => {
-                      val limInf = i * 1000
-                      val limSup = math.min((i + 1) * 1000, uniqueCandidates.length) 
+                      val limInf = i * batchSize
+                      val limSup = math.min((i + 1) * batchSize, uniqueCandidates.length) 
                       val labels = uniqueCandidates.slice(limInf, limSup)
                       val temp = getScores(candidate, labels, substring, sentence)
                       candidate.keySet.foreach(node => {

@@ -89,14 +89,15 @@ object Lexicalization {
   }
 
   def cleanText(text: String): String = {
-    ( (out: String) => "\\([^)]+\\)".r.replaceAllIn(out, " ")).andThen(
-      (out: String) => "\"".r.replaceAllIn(out, " ")).andThen(
-      (out: String) => "\\\\".r.replaceAllIn(out, " ")).andThen(
-      (out: String) => ":".r.replaceAllIn(out, " ")).andThen(
-      (out: String) => "_".r.replaceAllIn(out, " ")).andThen(
-      (out: String) => "([a-z])([A-Z])".r.replaceAllIn(out, "$1 $2")).andThen(
-      (out: String) => "\\s+".r.replaceAllIn(out, " "))
-      (text).trim
+    var out = text
+    out = "\\([^)]+\\)".r.replaceAllIn(out, " ")
+    out = "\"".r.replaceAllIn(out, " ")
+    out = "\\\\".r.replaceAllIn(out, " ")
+    out = ":".r.replaceAllIn(out, " ")
+    out = "_".r.replaceAllIn(out, " ")
+    out = "([a-z])([A-Z])".r.replaceAllIn(out, "$1 $2")
+    out = "\\s+".r.replaceAllIn(out, " ")
+    return out.trim
   }
 
 

@@ -289,12 +289,12 @@ object PerfectMatch {
 }
 
 object FuzzyMatch {
-  def getRelations(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
+  def getRelations(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, topicLabel: String,
                  lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
       List[DUDES.SolutionGraph] =  {
     val scores: Map[RDFNode, Double] = Encoder(lexicon("relation_in") ++ lexicon("relation_out"),
                                                sentence,
-                                               topic.sentence)
+                                               topicLabel)
     val relationsIn = lexicon("relation_in")
       .map(kv => {
              val newDudes = new DUDES.RelationDUDES(sentence, kv._1,
@@ -315,12 +315,12 @@ object FuzzyMatch {
       .map(g => g.get)
     return (relationsIn ++ relationsOut).toList
   }
-  def getObjects(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
+  def getObjects(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, topicLabel: String,
                  lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
       List[DUDES.SolutionGraph] = {
     val scores: Map[RDFNode, Double] = Encoder(lexicon("object_in") ++ lexicon("object_out"),
                                                sentence,
-                                               topic.sentence)
+                                               topicLabel)
     val objectsIn = lexicon("object_in")
       .map(kv => {
              val newDudes = new DUDES.ObjectDUDES(sentence, kv._1,
@@ -341,12 +341,12 @@ object FuzzyMatch {
       .map(g => g.get)
     return (objectsIn ++ objectsOut).toList
   }
-  def getClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
+  def getClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, topicLabel: String,
                  lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
       List[DUDES.SolutionGraph] = {
     val scores: Map[RDFNode, Double] = Encoder(lexicon("class_in") ++ lexicon("class_out"),
                                                sentence,
-                                               topic.sentence)
+                                               topicLabel)
     val classesIn = lexicon("class_in")
       .map(kv => {
              val newDudes = new DUDES.ClassDUDES(sentence, kv._1,
@@ -371,9 +371,27 @@ object FuzzyMatch {
   def apply(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
           lexicon: Map[String, Map[RDFNode, List[String]]], nextStepTree: Sentence):
       List[DUDES.SolutionGraph] = {
-    val out = (getRelations(candidate, topic, lexicon, nextStepTree) ++
-                 getObjects(candidate, topic, lexicon, nextStepTree) ++
-                 getClasses(candidate, topic, lexicon, nextStepTree))
+    val topicClass = KG(s"""SELECT DISTINCT ?label WHERE {
+                           |  $topic  a  ?class .
+                           |  ?class  rdfs:label  ?label .
+                           |}""".stripMargin)
+      .filter(q => Lexicalization.filterLanguage(q.get("?label"), topic.sentence.lang))
+      .map(q => q.get("?label"))
+      .filter(_ != null)
+      .map(s => Lexicalization.cleanLabel(s))
+      .headOption.getOrElse("")
+    val topicLabel = KG(s"""SELECT DISTINCT ?label WHERE {
+                           |  $topic  rdfs:label  ?label .
+                           |}""".stripMargin)
+      .filter(q => Lexicalization.filterLanguage(q.get("?label"), topic.sentence.lang))
+      .map(q => q.get("?label"))
+      .filter(_ != null)
+      .map(s => Lexicalization.cleanLabel(s))
+      .headOption.getOrElse("")
+    val topicString = s"$topicLabel"
+    val out = (getRelations(candidate, topic, topicString, lexicon, nextStepTree) ++
+                 getObjects(candidate, topic, topicString, lexicon, nextStepTree) ++
+                 getClasses(candidate, topic, topicString, lexicon, nextStepTree))
     return out.filter(g => math.exp(g.score) > 0)
   }
 }
