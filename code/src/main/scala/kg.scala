@@ -24,6 +24,7 @@ import nlp.{
   Parser,
   POS,
   Sentence }
+import semantics.DUDES
 
 
 object KG {
@@ -126,22 +127,27 @@ object Lexicalization {
     return out
   }
 
-  def apply(node: RDFNode, language: String): List[String] = {
+  def apply(node: DUDES.MainDUDES, language: String): String = {
     /**
      * translate a result into text: translate a NODE into a string taking
      * either the (cleaned) label, if available, or trying a lexicalization from
      * the URI 
      */
-    return List(cleanUri(node))
     val labelQuery = s"""SELECT DISTINCT ?label WHERE {
-                        |  <$node>  rdfs:label  ?label
+                        |  $node  rdfs:label  ?label
                         |}""".stripMargin
-    return cleanText(node.toString) +: KG(labelQuery)
+    val label = KG(labelQuery)
       .filter(q => filterLanguage(q.get("?label"), language))
-      .map(q => cleanLabel(q.get("?label")))
+      .map(q => q.get("?label"))
+      .filter(_ != null)
+      .map(cleanLabel)
+      .headOption.getOrElse(cleanUri(node match {
+                                       case node: DUDES.RelationDUDES => node.r.get
+                                       case node: DUDES.ClassDUDES => node.c.get
+                                       case _ => node()
+                                     }))
+    return cleanText(label)
   }
-  def apply(node: QuerySolution, variable: String, language: String): List[String] =
-    apply(node.get(s"?$variable"), language)
 }
 
 

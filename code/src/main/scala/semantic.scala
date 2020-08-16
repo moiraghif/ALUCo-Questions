@@ -371,24 +371,7 @@ object FuzzyMatch {
   def apply(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
           lexicon: Map[String, Map[RDFNode, List[String]]], nextStepTree: Sentence):
       List[DUDES.SolutionGraph] = {
-    val topicClass = KG(s"""SELECT DISTINCT ?label WHERE {
-                           |  $topic  a  ?class .
-                           |  ?class  rdfs:label  ?label .
-                           |}""".stripMargin)
-      .filter(q => Lexicalization.filterLanguage(q.get("?label"), topic.sentence.lang))
-      .map(q => q.get("?label"))
-      .filter(_ != null)
-      .map(s => Lexicalization.cleanLabel(s))
-      .headOption.getOrElse("")
-    val topicLabel = KG(s"""SELECT DISTINCT ?label WHERE {
-                           |  $topic  rdfs:label  ?label .
-                           |}""".stripMargin)
-      .filter(q => Lexicalization.filterLanguage(q.get("?label"), topic.sentence.lang))
-      .map(q => q.get("?label"))
-      .filter(_ != null)
-      .map(s => Lexicalization.cleanLabel(s))
-      .headOption.getOrElse("")
-    val topicString = s"$topicLabel"
+    val topicString = Lexicalization(topic, topic.sentence.lang)
     val out = (getRelations(candidate, topic, topicString, lexicon, nextStepTree) ++
                  getObjects(candidate, topic, topicString, lexicon, nextStepTree) ++
                  getClasses(candidate, topic, topicString, lexicon, nextStepTree))
