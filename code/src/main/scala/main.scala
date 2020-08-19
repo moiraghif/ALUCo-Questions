@@ -15,7 +15,7 @@ object Main {
   }
   def startShell(): Unit = {
     // start a shell interface to the main program
-    return printSolution("Who directed Titanic ?")
+    return printSolution("Who is the director of the movie Titanic with Leonardo DiCaprio ?")
     while (true) {
       print(">> ")
       val text = StdIn.readLine().trim

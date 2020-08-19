@@ -126,12 +126,25 @@ object DUDES {
       extends MainDUDES(sentence, c = Some(cls),
                         score = score, dist = dist) {
     override def toRDF(prev: MainDUDES): String =
-      s"${prev.getObjectDUDES()}  ${prev.getRelationDUDES()}  ${getObjectDUDES()} .  " +
-        s"${getObjectDUDES()}  a  ${getClassDUDES()} ."
+      s"${prev.getObjectDUDES()}  a  ${getClassDUDES()} ."
 
     override def toString(): String = s"<${c.get}>"
   }
 
+  case class ClassIncognitaDUDES(override val sentence: Sentence,
+                                 cls: RDFNode,
+                                 override val dist: Int,
+                                 override val score: Double = 1.0)
+      extends MainDUDES(sentence, c = Some(cls),
+                        score = score, dist = dist) {
+    override def toRDF(prev: MainDUDES): String =
+      s"${prev.getObjectDUDES()}  ${prev.getRelationDUDES()}  ${getObjectDUDES()} .  " +
+        s"${getObjectDUDES()}  a  ${getClassDUDES()} ."
+
+     override def toString(): String = s"<${c.get}>"
+  }
+
+  
   class SolutionGraph(val graph: Graph[MainDUDES, DiEdge]) {
 
     // the score is signed in logaritmic scale: it is more substainable in long sentences
@@ -221,6 +234,26 @@ object DUDES {
       return makeRDF(triples) 
     }
 
+    def printDUDES(): Unit = {
+      println("DUDES:")
+      val nodes = getNodes().map(n => n.value)
+      nodes.foreach(n => {
+                      val text: String = n match {
+                        case n: ObjectDUDES => "Object"
+                        case n: RelationDUDES => "Relation"
+                        case n: ClassDUDES => "Class"
+                        case n: ClassIncognitaDUDES => "Class of Incognita"
+                        case n: VariableDUDES => "Variable"
+                        case n: IncognitaDUDES => "Incognita"
+                      }
+                      println(s"$text: ${n.sentence} [$n]")
+                    })
+      graph.edges.foreach(e => {
+                            val from = e._1.value
+                            val to = e._2.value
+                            println(s"$from ~> $to")
+                          })
+    }
   }
 }
 

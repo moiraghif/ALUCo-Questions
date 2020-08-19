@@ -15,14 +15,14 @@ import main.constants._
 
 object QASystem {
 
-  def solve(candidates: List[DUDES.SolutionGraph], question: Sentence): Option[DUDES.SolutionGraph] = {
+  def solve(candidates: List[DUDES.SolutionGraph], question: Sentence): Option[(DUDES.SolutionGraph, List[QuerySolution])] = {
     /**
      * get the best candidate and expand the graph in that direction
      */
     if (printLog()) println(s"\nNew iteration: ${candidates.length} candidates remaining\n")
     if (candidates.isEmpty) {
       if (printLog()) println("No solution found")
-      return None
+      return null
     }
     val maxScore: Double = candidates.map(g => g.score).maxBy(math.exp)
     val bestCandidate: DUDES.SolutionGraph = candidates
@@ -31,9 +31,13 @@ object QASystem {
       .last
     val getTopicResults = DUDES.getTopic(bestCandidate, question)
     if (! getTopicResults.isDefined) {  // the best graph is completed, no need to explore further
-      if (printLog()) println(s"\n\nSOLUTION FOUND [${math.exp(bestCandidate.score)}]: $question\n\n$bestCandidate")
-
-      return Some(bestCandidate)
+      if (printLog()) {
+        bestCandidate.printDUDES()
+        println(s"\n\nSOLUTION FOUND [${math.exp(bestCandidate.score)}]: $question\n\n$bestCandidate")
+      }
+      val out = KG(s"$bestCandidate")
+      if (out.isEmpty) return solve(candidates.filter(c => c != bestCandidate), question)
+      return Some((bestCandidate, out))
     }
     val (topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean) = getTopicResults.get
     val nextSteps: List[Sentence] = exploreTree(sentence + topic.sentence,
@@ -69,17 +73,26 @@ object QASystem {
               |}""".stripMargin), sentence.lang, "object"),
       "class_in" -> Lexicalization(
         KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
+              |  $topic ?a ?class.
+              |  OPTIONAL { ?class rdfs:label ?class_label. } 
+              |}""".stripMargin), sentence.lang, "class"),
+      "class_out" -> Lexicalization(
+        KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
+              |  ?object  a ?class.
+              |  OPTIONAL { ?class rdfs:label ?class_label. }
+              |}""".stripMargin), sentence.lang, "class"),
+      "class_incognita_in" -> Lexicalization(
+        KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
               |  $topic ?relation ?object.
               |  ?object a ?class.
               |  OPTIONAL { ?class rdfs:label ?class_label. } 
               |}""".stripMargin), sentence.lang, "class"),
-      "class_out" -> Lexicalization(
+      "class_incognita_out" -> Lexicalization(
         KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
               |  ?object ?relation $topic.
               |  ?object a ?class.
               |  OPTIONAL { ?class rdfs:label ?class_label. }
               |}""".stripMargin), sentence.lang, "class"))
-
 
     val perfectMatches: List[DUDES.SolutionGraph] = nextSteps.map(
       next => PerfectMatch(bestCandidate, topic, bestCandidateLexicalization, next)).flatten
@@ -87,6 +100,10 @@ object QASystem {
     if (perfectMatches.isEmpty) {
       if (printLog())
         println("Computing fuzzy matches...")
+
+      // return solve(candidates.filter(c => c != bestCandidate) ++ perfectMatches,
+      //              question)
+
 
       val fuzzyMatches: List[DUDES.SolutionGraph] = nextSteps.map(
         next => FuzzyMatch(bestCandidate, topic, bestCandidateLexicalization, next)).flatten
@@ -120,6 +137,7 @@ object QASystem {
     /**
      * get a list of candidates for the next step, starting from a TOPIC going up in the TREE
      */
+    return exploreTreeDown(tree, topic)
     val headQuestion = getTreeRoot(tree).toInt - 1
     val headTopic = getTreeRoot(topic)
     val headTopicPosition = headTopic.toInt - 1 
@@ -162,11 +180,11 @@ object QASystem {
   def apply(question: String): String = {
     val tree: Sentence = Parser(question)
     val sentenceGraphs: List[DUDES.SolutionGraph] = NEE(tree)
-    val solution: Option[DUDES.SolutionGraph] = solve(sentenceGraphs, tree)
-    if (solution.isDefined) {
-      val solutionGraph = solution.get
-      val variables = solutionGraph.getVariables()
-      val solutions: List[QuerySolution] = KG(solution.get.toString)
+    val solutionCandidate: Option[(DUDES.SolutionGraph, List[QuerySolution])] = solve(sentenceGraphs, tree)
+    if (solutionCandidate.isDefined) {
+      val solution = solutionCandidate.get
+      val variables = solution._1.getVariables()
+      val solutions = solution._2
       return solutions.map(q => {
                              val solutions = variables.map(v => q.get(v))
                              solutions.mkString(", ")
@@ -266,6 +284,34 @@ object PerfectMatch {
       .map(g => g.get)
     return (classesIn ++ classesOut).toList
   }
+
+  def getIncognitaClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
+                        lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
+      List[DUDES.SolutionGraph] = {
+    val classesIn = lexicon("class_incognita_in")
+      .filter(kv => perfectMatch(sentence.sentence, kv._2))
+      .map(kv => kv._1)
+      .map(c => {
+             val newDudes = new DUDES.ClassIncognitaDUDES(sentence, c,
+                                                          topic.dist + 1, 1.0)
+             val edge = topic ~> newDudes
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    val classesOut = lexicon("class_incognita_out")
+      .filter(kv => perfectMatch(sentence.sentence, kv._2))
+      .map(kv => kv._1)
+      .map(c => {
+             val newDudes = new DUDES.ClassIncognitaDUDES(sentence, c,
+                                                          topic.dist + 1, 1.0)
+             val edge = newDudes ~> topic
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    return (classesIn ++ classesOut).toList
+  }
   
 
   def apply(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
@@ -281,7 +327,8 @@ object PerfectMatch {
     }
     val out = getRelations(candidate, topic, lexicon, nextStepTree) ++
       getObjects(candidate, topic, lexicon, nextStepTree) ++
-      getClasses(candidate, topic, lexicon, nextStepTree)
+      getClasses(candidate, topic, lexicon, nextStepTree) ++
+      getIncognitaClasses(candidate, topic, lexicon, nextStepTree)
     if (printLog()) out.foreach(println)
     return out
   }
@@ -367,6 +414,32 @@ object FuzzyMatch {
       .map(g => g.get)
     return (classesIn ++ classesOut).toList
   }
+  def getIncognitaClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, topicLabel: String,
+                        lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
+      List[DUDES.SolutionGraph] = {
+    val scores: Map[RDFNode, Double] = Encoder(lexicon("class_incognita_in") ++ lexicon("class_incognita_out"),
+                                               sentence,
+                                               topicLabel)
+    val classesIn = lexicon("class_in")
+      .map(kv => {
+             val newDudes = new DUDES.ClassIncognitaDUDES(sentence, kv._1,
+                                                          topic.dist + 1, scores(kv._1))
+             val edge = topic ~> newDudes
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    val classesOut = lexicon("class_out")
+      .map(kv => {
+             val newDudes = new DUDES.ClassIncognitaDUDES(sentence, kv._1,
+                                                          topic.dist + 1, scores(kv._1))
+             val edge = newDudes ~> topic
+             candidate.addDUDES(edge)
+           })
+      .filter(g => g.isDefined)
+      .map(g => g.get)
+    return (classesIn ++ classesOut).toList
+  }
 
   def apply(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
           lexicon: Map[String, Map[RDFNode, List[String]]], nextStepTree: Sentence):
@@ -374,7 +447,8 @@ object FuzzyMatch {
     val topicString = Lexicalization(topic, topic.sentence.lang)
     val out = (getRelations(candidate, topic, topicString, lexicon, nextStepTree) ++
                  getObjects(candidate, topic, topicString, lexicon, nextStepTree) ++
-                 getClasses(candidate, topic, topicString, lexicon, nextStepTree))
+                 getClasses(candidate, topic, topicString, lexicon, nextStepTree) ++
+                 getIncognitaClasses(candidate, topic, topicString, lexicon, nextStepTree))
     return out.filter(g => math.exp(g.score) > 0)
   }
 }

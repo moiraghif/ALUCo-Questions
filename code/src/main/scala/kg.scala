@@ -144,6 +144,7 @@ object Lexicalization {
       .headOption.getOrElse(cleanUri(node match {
                                        case node: DUDES.RelationDUDES => node.r.get
                                        case node: DUDES.ClassDUDES => node.c.get
+                                       case node: DUDES.ClassIncognitaDUDES => node.c.get
                                        case _ => node()
                                      }))
     return cleanText(label)
