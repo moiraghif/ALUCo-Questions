@@ -11,11 +11,11 @@ object Main {
   // https://github.com/ag-sc/QALD
   def printSolution(question: String): Unit = {
     val solution = QASystem(question)
-    println(s"\n => \n$solution")
+    println(s"\n=> \n$solution")
   }
   def startShell(): Unit = {
     // start a shell interface to the main program
-    return printSolution("Who is the director of the movie Titanic with Leonardo DiCaprio ?")
+    return printSolution("Which person is the director of the movie Titanic with Leonardo DiCaprio ?")
     while (true) {
       print(">> ")
       val text = StdIn.readLine().trim

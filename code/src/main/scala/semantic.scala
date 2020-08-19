@@ -15,7 +15,20 @@ import main.constants._
 
 object QASystem {
 
-  def solve(candidates: List[DUDES.SolutionGraph], question: Sentence): Option[(DUDES.SolutionGraph, List[QuerySolution])] = {
+  def getSolution(solution: DUDES.SolutionGraph): Option[String] = {
+    val variables = solution.getVariables()
+    val query = solution.toString()
+    if (query.startsWith("SELECT")) {
+      val out = KG.querySelect(query)
+      if (out.isEmpty) return None
+      return Some(out.map(q => {
+                            variables.map(v => q.get(v).toString).mkString(", ")
+                          }).mkString("\n"))
+    }
+    return Some(KG.queryAsk(query).toString)
+  }
+
+  def solve(candidates: List[DUDES.SolutionGraph], question: Sentence): Option[(DUDES.SolutionGraph, String)] = {
     /**
      * get the best candidate and expand the graph in that direction
      */
@@ -35,16 +48,28 @@ object QASystem {
         bestCandidate.printDUDES()
         println(s"\n\nSOLUTION FOUND [${math.exp(bestCandidate.score)}]: $question\n\n$bestCandidate")
       }
-      val out = KG(s"$bestCandidate")
-      if (out.isEmpty) return solve(candidates.filter(c => c != bestCandidate), question)
-      return Some((bestCandidate, out))
+      val out = getSolution(bestCandidate)
+      if (! out.isDefined) return solve(candidates.filter(c => c != bestCandidate), question)
+      return Some((bestCandidate, out.get))
     }
     val (topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean) = getTopicResults.get
     val nextSteps: List[Sentence] = exploreTree(sentence + topic.sentence,
                                              topic.sentence,
                                              up)
-    if (printLog())
+    if (printLog()) {
+      println(bestCandidate)
       println(s"checking from $topic:"); nextSteps.foreach(println)
+    }
+
+    if (nextSteps.filter(s => s.id.exists(POS.openClassPOS)).isEmpty) {
+      nextSteps.foreach(nextStepTree =>
+        if (POS.isInterrogative(nextStepTree)) {
+          val newDudes = new DUDES.IncognitaDUDES(nextStepTree, topic.dist + 1)
+          val newSolution = bestCandidate.addDUDES(topic ~> newDudes)
+          if (newSolution.isDefined)
+            return solve(candidates.filter(_ != bestCandidate) :+ newSolution.get, question)
+        })
+    }
 
     val bestCandidateLexicalization: Map[String, Map[RDFNode, List[String]]] = Map(
       "relation_in" -> Lexicalization(
@@ -101,8 +126,8 @@ object QASystem {
       if (printLog())
         println("Computing fuzzy matches...")
 
-      // return solve(candidates.filter(c => c != bestCandidate) ++ perfectMatches,
-      //              question)
+      return solve(candidates.filter(c => c != bestCandidate) ++ perfectMatches,
+                   question)
 
 
       val fuzzyMatches: List[DUDES.SolutionGraph] = nextSteps.map(
@@ -133,62 +158,48 @@ object QASystem {
   }
 
 
-  def exploreTreeUp(tree: Sentence, topic: Sentence): List[Sentence] = {
-    /**
-     * get a list of candidates for the next step, starting from a TOPIC going up in the TREE
-     */
-    return exploreTreeDown(tree, topic)
-    val headQuestion = getTreeRoot(tree).toInt - 1
-    val headTopic = getTreeRoot(topic)
-    val headTopicPosition = headTopic.toInt - 1 
-
-    def getNext(position: Int, acc: List[Sentence]): List[Sentence] = {
-      try {
-        val head = tree.dep(position).toInt - 1
-        if (head == headQuestion) return acc :+ tree.getPortion((head, head + 1))
-        getNext(head, acc :+ tree.getPortion((head, headTopicPosition)))
-      } catch {
-        case e: java.lang.ArrayIndexOutOfBoundsException => acc 
-      }
-    }
-    return getNext(headTopicPosition, List[Sentence]())
-  }
-
-  def exploreTreeDown(tree: Sentence, topic: Sentence): List[Sentence] = {
+  def exploreTree(tree: Sentence, topic: Sentence, up: Boolean): List[Sentence] = {
     /**
      * get a list of candidates for the next step, starting from a TOPIC going down in the TREE
      */
     val ids: Array[String] = tree.id.filterNot(i => topic.id.contains(i))
     val subTrees: Array[Sentence] = splitIntoSubtrees(tree.get(ids))
+
+    def check(sentence: Sentence): Boolean =
+      sentence.isValidTree && sentence.pos.exists(POS.openClassPOS)
+
     def slidingWindow(subtree: Sentence): List[Sentence] = {
       var out: List[Sentence] = List(subtree)
       for (i <- 0 until subtree.length;
          size <- 1 to (subtree.length - i)) {
         val nextSentence = subtree.getPortion(i, i + size)
-        if (nextSentence.isValidTree) out = out :+ nextSentence
+        if (nextSentence.id.head.toInt < topic.id.head.toInt) {
+          val p0 = tree.id.indexOf(nextSentence.id.head)
+          val p1 = tree.id.indexOf(topic.id.head)
+          val infra = tree.getPortion(p0, p1)
+          if (! infra.id.exists(POS.openClassPOS) && check(nextSentence))
+            out = out :+ nextSentence
+        } else {
+          val p0 = tree.id.indexOf(topic.id.head)
+          val p1 = tree.id.indexOf(nextSentence.id.head)
+          val infra = tree.getPortion(p0, p1)
+          if (! infra.id.exists(POS.openClassPOS) && check(nextSentence))
+            out = out :+ nextSentence
+        }
       }
       return out
     }
+
     return subTrees.map(slidingWindow).toList.flatten
   }
-    // add a sliding window to check all the sub-trees
-
-  def exploreTree(tree: Sentence, topic: Sentence, up: Boolean): List[Sentence] =
-    if (up) exploreTreeUp(tree, topic)
-    else exploreTreeDown(tree, topic)
 
   def apply(question: String): String = {
     val tree: Sentence = Parser(question)
     val sentenceGraphs: List[DUDES.SolutionGraph] = NEE(tree)
-    val solutionCandidate: Option[(DUDES.SolutionGraph, List[QuerySolution])] = solve(sentenceGraphs, tree)
+    val solutionCandidate: Option[(DUDES.SolutionGraph, String)] = solve(sentenceGraphs, tree)
     if (solutionCandidate.isDefined) {
       val solution = solutionCandidate.get
-      val variables = solution._1.getVariables()
-      val solutions = solution._2
-      return solutions.map(q => {
-                             val solutions = variables.map(v => q.get(v))
-                             solutions.mkString(", ")
-                           }).mkString("\n")
+      return solution._2
     }
     return "<!> ERROR: no answer for this question."
   }
@@ -317,19 +328,10 @@ object PerfectMatch {
   def apply(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
           lexicon: Map[String, Map[RDFNode, List[String]]], nextStepTree: Sentence):
       List[DUDES.SolutionGraph] = {
-    if ((nextStepTree.length == 1 &&  // if the nextStep is a interrogative pronoun
-          nextStepTree.pos.head == "PRON" &&
-           nextStepTree.flex.head == "PronType=Int") ||
-          false) {
-      val newDudes = new DUDES.IncognitaDUDES(nextStepTree, topic.dist + 1)
-      val newSolution = candidate.addDUDES(topic ~> newDudes)
-      if (newSolution.isDefined) return List(newSolution.get)
-    }
     val out = getRelations(candidate, topic, lexicon, nextStepTree) ++
       getObjects(candidate, topic, lexicon, nextStepTree) ++
       getClasses(candidate, topic, lexicon, nextStepTree) ++
       getIncognitaClasses(candidate, topic, lexicon, nextStepTree)
-    if (printLog()) out.foreach(println)
     return out
   }
 

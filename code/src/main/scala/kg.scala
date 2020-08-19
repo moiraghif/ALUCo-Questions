@@ -53,17 +53,27 @@ object KG {
   val queryKG = connectToKg(url) _
 
 
-  def apply(query: String): List[QuerySolution] = {
+  def queryAsk(query: String): Boolean = {
+    Thread.sleep(getLatency().toLong)
+    try queryKG(query).execAsk()
+    catch {
+      case e: org.apache.jena.sparql.resultset.ResultSetException => return false
+    }
+  }
+
+  def querySelect(query: String): List[QuerySolution] = { 
     /**
      * execute a select QUERY from the standard database; it returns an iterator
      * of possible solutions
      * this function is polite: it respects the latency setted in config.json
      */
-    // TODO: add try-catch in case the query does not succeed
-    val solutions = queryKG(query).execSelect().asScala.toList
     Thread.sleep(getLatency().toLong)
-    return solutions
+    try queryKG(query).execSelect().asScala.toList
+    catch {
+      case e: org.apache.jena.sparql.resultset.ResultSetException => return List[QuerySolution]()
+    }
   }
+  def apply(query: String): List[QuerySolution] = querySelect(query)
 
 }
 
@@ -289,7 +299,7 @@ object NEE {
       return filter(out, i + 1)
     }
     val topicDUDES = candidates(parsingOrder.head).map(rdf =>
-      new DUDES.VariableDUDES(parsingOrder.head, rdf))
+      new DUDES.ObjectDUDES(parsingOrder.head, rdf, 0))
       .map(d => (List(d), List[DiEdge[DUDES.MainDUDES]]()))
       .toMap[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]]
     val dudes = filter(topicDUDES)

@@ -27,7 +27,7 @@ object DUDES {
       val sentenceToParse: Sentence = question.get(question.id.filterNot(
                                                      i => sentenceIntoGraph.contains(i)))
       splitIntoSubtrees(sentenceToParse)
-        .filter(sent => sent.pos.exists(POS.openClassPOS)) }
+        .filter(s => POS(s)) }
 
     candidate.getNodes().map(n => n.value).foreach(
       node => {
@@ -86,13 +86,6 @@ object DUDES {
     override def toString(): String = s"?var_${getTreeRoot(sentence)}"
   }
 
-  case class VariableDUDES(override val sentence: Sentence,
-                           variable: RDFNode)
-      extends MainDUDES(sentence, o = Some(variable),
-                        dist = 0) {
-    override def toString(): String = s"<${o.get}>"
-  }
-
   case class RelationDUDES(override val sentence: Sentence,
                            rel: RDFNode,
                            override val dist: Int,
@@ -113,8 +106,6 @@ object DUDES {
                          override val score: Double = 1.0)
       extends MainDUDES(sentence, o = Some(obj),
                         score = score, dist = dist) {
-    /* override def toRDF(next: MainDUDES): String =
-      s"${getObjectDUDES()}  ${next.getRelationDUDES()}  ${next.getObjectDUDES()} ." */
 
     override def toString(): String = s"<${o.get}>"
   }
@@ -158,15 +149,6 @@ object DUDES {
       return Some(out.head)
     }
 
-    def getTopic(): graph.NodeT =
-      /**
-       * get the topic node of the graph
-       */
-      graph.nodes.filter(n => n.value match {
-                           case n: VariableDUDES => true
-                           case _ => false
-                         }).toList.head
-
 
     def getDistance(node: graph.NodeT): Int =
       /**
@@ -197,19 +179,20 @@ object DUDES {
     }
 
     def getVariables(): List[String] = {
-      val incognitaNodes: List[MainDUDES] = graph.nodes
-        .map(n => n.value)
-        .filter(n => n match {
+      val incognitaNodes = graph.edges
+        .filter(e => e._2.value match {
                   case n: IncognitaDUDES => true
                   case _ => false
-                }).toList
-      if (incognitaNodes.isEmpty) return List[String]()
-      return incognitaNodes.map(dudes => dudes.toRDF(
-                                  getNode(dudes).get.edges.head._1.value
-                                ))
+                })
+        .toList
+      return incognitaNodes.map(e => e._1.value match {
+                                  case n: RelationDUDES => e._2.value.getObjectDUDES()
+                                  case _ => e._1.value.getObjectDUDES()
+                                })
+        .toSet.toList
     }
 
-    def makeRDF(query: List[String]): String = {
+    def makeSPARQL(query: List[String]): String = {
       val queryText = query.map(triple => s"  $triple").mkString("\n")
       val incognitaNodes = getVariables()
 
@@ -225,13 +208,72 @@ object DUDES {
     }
 
     override def toString(): String = {
-      val triples = graph.edges.toList
-        .filter(e => e._2.value match {
-                  case n: IncognitaDUDES => false
-                  case _ => true
+      def getRelation(n1: MainDUDES, n2: MainDUDES): String = {
+        val h1 = getTreeRoot(n1.sentence)
+        val h2 = getTreeRoot(n2.sentence)
+        return s"?r_${h1}_${h2}"
+      }
+      var triples = List[String]()
+      // relations
+      graph.nodes
+        .filter(n => n.value match {
+                  case n: RelationDUDES => true
+                  case _ => false
                 })
-        .map(e => e._2.value.toRDF(e._1.value))
-      return makeRDF(triples) 
+        .foreach(r => {
+                   val edges = r.edges.toList
+                   val edgesIn = edges.filter(e => e._2 == r)
+                   val edgesOut = edges.filter(e => e._1 == r)
+                   for (eIn  <- edgesIn; eOut <- edgesOut) {
+                     val s = eIn._1.value.getObjectDUDES()
+                     val o = eOut._2.value.getObjectDUDES()
+                     val triple = s"$s  ${r.value}  $o ."
+                     if (! triples.contains(triple))
+                       triples = triples :+ triple
+                   }
+                 })
+      // objects
+      graph.edges
+        .filter(e => {
+                  val e1: Boolean = e._1.value match {
+                    case n: RelationDUDES => false
+                    case _ => true
+                  }
+                  val e2: Boolean = e._2.value match {
+                    case n: RelationDUDES => false
+                    case n: IncognitaDUDES => false
+                    case _ => true
+                  }
+                  e1 && e2})
+        .foreach(e => {
+                   val e1 = e._1.value
+                   val e2 = e._2.value
+                   val r = e2 match {
+                     case n: ClassDUDES => "a"
+                     case n: ClassIncognitaDUDES => {
+                       val newRelation = getRelation(e1, e2)
+                       val o = e2.getObjectDUDES()
+                       s"$newRelation  $o .  $o  a"
+                     }
+                     case _ => getRelation(e1, e2)
+                   }
+                   val triple = s"$e1  $r  $e2 ."
+                   if (! triples.contains(triple))
+                     triples = triples :+ triple
+                 })
+      // classes
+      graph.nodes
+        .filter(n => n.value match {
+                  case n: ClassDUDES => true
+                  case _ => false
+                })
+        .foreach(n => {
+                   val dudes = n.value
+                   val triple = s"${dudes.getObjectDUDES()}  a  $dudes ."
+                   if (! triples.contains(triple))
+                     triples = triples :+ triple
+                 })
+      return makeSPARQL(triples.toList) 
     }
 
     def printDUDES(): Unit = {
@@ -243,7 +285,6 @@ object DUDES {
                         case n: RelationDUDES => "Relation"
                         case n: ClassDUDES => "Class"
                         case n: ClassIncognitaDUDES => "Class of Incognita"
-                        case n: VariableDUDES => "Variable"
                         case n: IncognitaDUDES => "Incognita"
                       }
                       println(s"$text: ${n.sentence} [$n]")

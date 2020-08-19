@@ -227,11 +227,18 @@ object POS {
    * a more linguistic part
    */
   // from: http://universaldependencies.org/docs/u/pos/index.html
-  val openPOS: Array[String]  = Array("ADJ", "ADV", "INTJ", "NOUN", "PROPN", "VERB",
-                                 "PRON")  // to add the IncognitaDUDES 
+  val openPOS: Array[String]  = Array("ADJ", "ADV", "INTJ", "NOUN", "PROPN", "VERB")  // to add the IncognitaDUDES
 
   def openClassPOS(pos: String): Boolean = openPOS.contains(pos)
   def closedClassPOS(pos: String): Boolean = ! openClassPOS(pos)
+
+  def isInterrogative(sentence: Sentence): Boolean =
+    sentence.length == 1 && sentence.flex.head.contains("PronType=Int")
+
+
+  def apply(sentence: Sentence): Boolean =
+    sentence.pos.exists(word => openClassPOS(word)) || isInterrogative(sentence)
+      
 }
 
 
