@@ -262,14 +262,15 @@ object DUDES {
                      triples = triples :+ triple
                  })
       // classes
-      graph.nodes
-        .filter(n => n.value match {
+      graph.edges
+        .filter(n => n._2.value match {
                   case n: ClassDUDES => true
                   case _ => false
                 })
         .foreach(n => {
-                   val dudes = n.value
-                   val triple = s"${dudes.getObjectDUDES()}  a  $dudes ."
+                   val dudes = n._2.value
+                   val prev = n._1.value
+                   val triple = s"$prev  a  $dudes ."
                    if (! triples.contains(triple))
                      triples = triples :+ triple
                  })
