@@ -452,7 +452,7 @@ object FuzzyMatch {
     val scores: Map[RDFNode, Double] = Encoder(lexicon("class_incognita_in") ++ lexicon("class_incognita_out"),
                                                sentence,
                                                topicLabel)
-    val classesIn = lexicon("class_in")
+    val classesIn = lexicon("class_incognita_in")
       .map(kv => {
              val newDudes = new DUDES.ClassIncognitaDUDES(sentence, kv._1,
                                                           topic.dist + 1, scores(kv._1))
@@ -461,7 +461,7 @@ object FuzzyMatch {
            })
       .filter(g => g.isDefined)
       .map(g => g.get)
-    val classesOut = lexicon("class_out")
+    val classesOut = lexicon("class_incognita_out")
       .map(kv => {
              val newDudes = new DUDES.ClassIncognitaDUDES(sentence, kv._1,
                                                           topic.dist + 1, scores(kv._1))
