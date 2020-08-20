@@ -19,6 +19,7 @@ import org.apache.jena.rdf.model.RDFNode
 import spray.json._
 import DefaultJsonProtocol._
 
+
 import main.utils._
 import main.constants._
 
@@ -58,10 +59,11 @@ class Sentence(tree: Map[String, Array[String]], val lang: String) {
       lang)
   def get(index: Array[String]): Sentence = get(index.map(i => id.indexOf(i)))
   def get(id: String): Sentence = get(Array(id))
+
   def getPortion(portion: (Int, Int)): Sentence = get((portion._1 until portion._2).toArray)
+
   def remove(index: Array[Int]): Sentence = get((0 until length).toArray.filter(! index.contains(_)))
   def remove(index: Array[String]): Sentence = remove(index.map(id.indexOf(_)))
-  def remove(sentence: Sentence): Sentence = remove(sentence.id)
 
 
   def getTree(): Map[String, Array[String]] =
@@ -250,11 +252,11 @@ object Encoder {
    * better job)
    */
   def getScores(candidate: Map[RDFNode, List[String]],
-              labels: List[String],
-              substring: Sentence,
-              sentence: String): Map[RDFNode, Double] = {
+                labels: List[String],
+                substring: Sentence,
+                sentence: String): Map[RDFNode, Double] = {
     /**
-     * get the scores
+     * get the scores for a single batch
      */
     val jsonIn: String = s"""{
                             |    "substring": "${substring}",
@@ -294,23 +296,29 @@ object Encoder {
   }
 
   def apply(candidate: Map[RDFNode, List[String]],
-          substring: Sentence,
-          sentence: String): Map[RDFNode, Double] = {
+            substring: Sentence,
+            sentence: String): Map[RDFNode, Double] = {
+    /**
+     * split the lexicalization of CANDIDATEs into batches of size = 1000 and
+     * pass them into a Doc2Vec model that analyzes the text and gives the
+     * similarity score with a SUBSTRING, eventually using a SENTENCE to
+     * contextualize
+     */
     val out =  scala.collection.mutable.Map[RDFNode, Double]()
     candidate.keySet.foreach(node => out(node) = -1.0)
+
     val uniqueCandidates = candidate.map(kv => kv._2).flatten.toSet.toList
     val batchSize = 1000
     val n = (uniqueCandidates.length / batchSize.toDouble).ceil.toInt
+
     (0 until n).foreach(i => {
-                      val limInf = i * batchSize
-                      val limSup = math.min((i + 1) * batchSize, uniqueCandidates.length) 
-                      val labels = uniqueCandidates.slice(limInf, limSup)
-                      val temp = getScores(candidate, labels, substring, sentence)
-                      candidate.keySet.foreach(node => {
-                                                 if (out(node) < temp(node))
-                                                   out(node) = temp(node)
-                                               })
-                 })
+                          val limInf = i * batchSize
+                          val limSup = math.min((i + 1) * batchSize, uniqueCandidates.length)
+                          val batch = uniqueCandidates.slice(limInf, limSup)
+                          val temp = getScores(candidate, batch, substring, sentence)
+                          candidate.keySet.foreach(node =>
+                            out(node) = out(node).max(temp(node)))
+                        })
     return out.toMap
   }
 }

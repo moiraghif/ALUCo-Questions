@@ -28,41 +28,72 @@ object QASystem {
     return Some(KG.queryAsk(query).toString)
   }
 
-  def solve(candidates: List[DUDES.SolutionGraph], question: Sentence): Option[(DUDES.SolutionGraph, String)] = {
+  def solve(candidates: List[DUDES.SolutionGraph], question: Sentence):
+      Option[(DUDES.SolutionGraph, String)] = {
     /**
      * get the best candidate and expand the graph in that direction
      */
-    if (printLog()) println(s"\nNew iteration: ${candidates.length} candidates remaining\n")
+    if (printLog())
+      println(s"\nNew iteration: ${candidates.length} candidates remaining\n")
+
     if (candidates.isEmpty) {
-      if (printLog()) println("No solution found")
+      /*
+       * it is not possible to check in any dierction now
+       */
+      if (printLog())
+        println("No solution found")
       return null
     }
+
+    /*
+     * it takes the most promising candidate (Dijkstra algorithm): the one with
+     * the higher score and the higher lenght
+     */
     val maxScore: Double = candidates.map(g => g.score).maxBy(math.exp)
     val bestCandidate: DUDES.SolutionGraph = candidates
       .filter(g => g.score == maxScore)
       .sortBy(g => g.length)
       .last
+
+    // it now takes the expansion direction
     val getTopicResults = DUDES.getTopic(bestCandidate, question)
-    if (! getTopicResults.isDefined) {  // the best graph is completed, no need to explore further
+
+
+    if (! getTopicResults.isDefined) {
+      // the best graph is completed, no need to explore further
       if (printLog()) {
         bestCandidate.printDUDES()
         println(s"\n\nSOLUTION FOUND [${math.exp(bestCandidate.score)}]: $question\n\n$bestCandidate")
       }
+      /*
+       * if the query is well formulated, it retrieves an answer: there is the
+       * possibility that the graph is not well formulated; in that case the
+       * algorithm does not stops but it ignores the candidate
+       */
       val out = getSolution(bestCandidate)
-      if (! out.isDefined) return solve(candidates.filter(c => c != bestCandidate), question)
+
+      if (! out.isDefined)
+        return solve(candidates.filter(c => c != bestCandidate), question)
       return Some((bestCandidate, out.get))
     }
-    val (topic: DUDES.MainDUDES, sentence: Sentence, up: Boolean) = getTopicResults.get
+
+    // if the graph can be expanded, take the direction
+    val (topic: DUDES.MainDUDES, sentence: Sentence) = getTopicResults.get
     val nextSteps: List[Sentence] = exploreTree(sentence + topic.sentence,
-                                             topic.sentence,
-                                             up)
+                                                topic.sentence)
+
     if (printLog()) {
       println(bestCandidate)
       bestCandidate.printDUDES()
       println(s"checking from $topic:"); nextSteps.foreach(println)
     }
 
-    if (nextSteps.filter(s => s.id.exists(POS.openClassPOS)).isEmpty) {
+    /*
+     * checks if there is an interrogative pronoun/adverb/something that
+     * indicates what to retrieve as answer: in that case does not expand the
+     * graph but insert a sign with the variable to retrieve
+     */
+    if (! nextSteps.exists(s => s.id.exists(POS.openClassPOS))) {
       nextSteps.foreach(nextStepTree =>
         if (POS.isInterrogative(nextStepTree)) {
           val newDudes = new DUDES.IncognitaDUDES(nextStepTree, topic.dist + 1)
@@ -72,6 +103,11 @@ object QASystem {
         })
     }
 
+    /*
+     * a boring part: it just takes a list of nodes and lexicalizations for all
+     * possible expansions in the graph, depending on the class of the topic
+     * DUDES and the possible candidates in the following step
+     */
     val bestCandidateLexicalization: Map[String, Map[RDFNode, List[String]]] = topic match {
       case n: DUDES.RelationDUDES => {
         val edge1 = bestCandidate.graph.edges.filter(e => e._1.value == topic).headOption
@@ -113,7 +149,7 @@ object QASystem {
                   |  OPTIONAL { ?class rdfs:label ?class_label. }
                   |}""".stripMargin), sentence.lang, "class"),
           "class_incognita_out" -> Map[RDFNode, List[String]]())
-        else Map(
+        else Map(  // it should be an unreachable state, but just to be sure...
           "relation_in" -> Map[RDFNode, List[String]](),
           "relation_out" -> Map[RDFNode, List[String]](),
           "object_in" -> Map[RDFNode, List[String]](),
@@ -170,10 +206,23 @@ object QASystem {
       }      
     }
 
+    /*
+     * check first for entities written exactly as is: it is a very simple
+     * answer to the OOV problem (OOV terms are, generally speaking, thecnical
+     * terms, so a perfect correspondence is needed)
+     */
     val perfectMatches: List[DUDES.SolutionGraph] = nextSteps.map(
       next => PerfectMatch(bestCandidate, topic, bestCandidateLexicalization, next)).flatten
 
+    /*
+     * it now uses a NN in order to obtain a list of links where the
+     * correspondence is not perfect: it just uses a cosine similarity between
+     * text and lexicalization of the KG as heuristics
+     */
     if (perfectMatches.isEmpty) {
+      // uncomment to make fast tests
+      // return solve(candidates.filter(c => c != bestCandidate), question)
+
       if (printLog())
         println("Computing fuzzy matches...")
 
@@ -205,7 +254,7 @@ object QASystem {
   }
 
 
-  def exploreTree(tree: Sentence, topic: Sentence, up: Boolean): List[Sentence] = {
+  def exploreTree(tree: Sentence, topic: Sentence): List[Sentence] = {
     /**
      * get a list of candidates for the next step, starting from a TOPIC going down in the TREE
      */
@@ -213,13 +262,28 @@ object QASystem {
     val subTrees: Array[Sentence] = splitIntoSubtrees(tree.get(ids))
 
     def check(sentence: Sentence): Boolean =
+      /**
+       * check if a SENTENCE can be considered a candidate
+       */
       sentence.isValidTree && sentence.pos.exists(POS.openClassPOS)
 
     def slidingWindow(subtree: Sentence): List[Sentence] = {
+      /**
+       * use a sliding window on the SUBTREE in order to take all candidates
+       */
       var out: List[Sentence] = List(subtree)
-      for (i <- 0 until subtree.length;
-         size <- 1 to (subtree.length - i)) {
+
+      for (i    <- 0 until subtree.length;
+           size <- 1 to (subtree.length - i)) {
+
+        // the candidate sentence
         val nextSentence = subtree.getPortion(i, i + size)
+
+        /*
+         * check if there is something between the sliding window and the topic
+         * entity (the subtree): in that case skip the candidate; otherwise add
+         * the candidate to the output list
+         */
         if (nextSentence.id.head.toInt < topic.id.head.toInt) {
           val p0 = tree.id.indexOf(nextSentence.id.head)
           val p1 = tree.id.indexOf(topic.id.head)
@@ -234,6 +298,7 @@ object QASystem {
             out = out :+ nextSentence
         }
       }
+
       return out
     }
 
@@ -241,13 +306,22 @@ object QASystem {
   }
 
   def apply(question: String): String = {
+    /**
+     * an abstraction of the QA system: it does the whole process starting from
+     * just a QUESTION
+     */
+
     val tree: Sentence = Parser(question)
     val sentenceGraphs: List[DUDES.SolutionGraph] = NEE(tree)
-    val solutionCandidate: Option[(DUDES.SolutionGraph, String)] = solve(sentenceGraphs, tree)
+
+    val solutionCandidate: Option[(DUDES.SolutionGraph, String)] =
+      solve(sentenceGraphs, tree)
+
     if (solutionCandidate.isDefined) {
       val solution = solutionCandidate.get
       return solution._2
     }
+
     return "<!> ERROR: no answer for this question."
   }
 
@@ -257,10 +331,20 @@ object QASystem {
 object PerfectMatch {
 
   def perfectMatch(candidate: String, possibilities: List[String]): Boolean =
-    possibilities.map(p => p.toLowerCase()).contains(candidate.toLowerCase())
+    /**
+     * the match is considered perfect if the two strings (lowercased) are equal
+     */
+    possibilities
+      .map(p => p.toLowerCase())
+      .contains(candidate.toLowerCase())
 
+  /*
+   * all the following functions have the same general structure: the
+   * lexicalization for the category is taken, the list is processed to check
+   * for perfect matches and (eventually) a new solution is given
+   */
   def getRelations(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
-                 lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
+                   lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
       List[DUDES.SolutionGraph] = {
     val relationsIn = lexicon("relation_in")
       .filter(kv => perfectMatch(sentence.sentence, kv._2))
@@ -288,7 +372,7 @@ object PerfectMatch {
   }
 
   def getObjects(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
-               lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
+                 lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
       List[DUDES.SolutionGraph] = {
     val objectsIn = lexicon("object_in")
       .filter(kv => perfectMatch(sentence.sentence, kv._2))
@@ -316,7 +400,7 @@ object PerfectMatch {
   }
 
   def getClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
-               lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
+                 lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
       List[DUDES.SolutionGraph] = {
     val classes = lexicon("class")
       .filter(kv => perfectMatch(sentence.sentence, kv._2))
@@ -333,7 +417,7 @@ object PerfectMatch {
   }
 
   def getIncognitaClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
-                        lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
+                          lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
       List[DUDES.SolutionGraph] = {
     val classesIn = lexicon("class_incognita_in")
       .filter(kv => perfectMatch(sentence.sentence, kv._2))
@@ -362,20 +446,30 @@ object PerfectMatch {
   
 
   def apply(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
-          lexicon: Map[String, Map[RDFNode, List[String]]], nextStepTree: Sentence):
+            lexicon: Map[String, Map[RDFNode, List[String]]], nextStepTree: Sentence):
       List[DUDES.SolutionGraph] = {
+    /**
+     * take all possible expansions for the perfect match and retrieve them
+     */
     val out = getRelations(candidate, topic, lexicon, nextStepTree) ++
       getObjects(candidate, topic, lexicon, nextStepTree) ++
       getClasses(candidate, topic, lexicon, nextStepTree) ++
       getIncognitaClasses(candidate, topic, lexicon, nextStepTree)
+
     return out
   }
 
 }
 
 object FuzzyMatch {
+
+  /*
+   * again, the structure is the same, but this time the process is made using a
+   * Doc2Vec HTTP server that retrieves a score -1 <= x <= +1
+   */
+
   def getRelations(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, topicLabel: String,
-                 lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
+                   lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
       List[DUDES.SolutionGraph] =  {
     val scores: Map[RDFNode, Double] = Encoder(lexicon("relation_in") ++ lexicon("relation_out"),
                                                sentence,
@@ -447,7 +541,7 @@ object FuzzyMatch {
   }
 
   def getIncognitaClasses(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES, topicLabel: String,
-                        lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
+                          lexicon: Map[String, Map[RDFNode, List[String]]], sentence: Sentence):
       List[DUDES.SolutionGraph] = {
     val scores: Map[RDFNode, Double] = Encoder(lexicon("class_incognita_in") ++ lexicon("class_incognita_out"),
                                                sentence,
@@ -474,8 +568,13 @@ object FuzzyMatch {
   }
 
   def apply(candidate: DUDES.SolutionGraph, topic: DUDES.MainDUDES,
-          lexicon: Map[String, Map[RDFNode, List[String]]], nextStepTree: Sentence):
+            lexicon: Map[String, Map[RDFNode, List[String]]], nextStepTree: Sentence):
       List[DUDES.SolutionGraph] = {
+    /**
+     * exactly like for PerfectMatch, but using a more sophisticated lexicon (so 
+     * that computing the cosine similarity is well optimized)
+     * Since there is a score, retrieve only graphs that are verosimilar
+     */
     val topicString = Lexicalization(topic, topic.sentence.lang)
     val out = (getRelations(candidate, topic, topicString, lexicon, nextStepTree) ++
                  getObjects(candidate, topic, topicString, lexicon, nextStepTree) ++
