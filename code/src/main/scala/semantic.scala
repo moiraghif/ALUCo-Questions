@@ -305,13 +305,22 @@ object QASystem {
     return subTrees.map(slidingWindow).toList.flatten
   }
 
+  def cleanQuestion(question: String): String = {
+    var out = question
+    out = "[A-ÿ]+[\\,]?".r.findAllIn(question).mkString(" ")
+    out = "(\\w+)".r.replaceAllIn(out, " $1 ")
+    out = "\\s+".r.replaceAllIn(out, " ")
+    return out.trim
+  }
+
+
   def apply(question: String): String = {
     /**
      * an abstraction of the QA system: it does the whole process starting from
      * just a QUESTION
      */
 
-    val tree: Sentence = Parser(question)
+    val tree: Sentence = Parser(cleanQuestion(question))
     val sentenceGraphs: List[DUDES.SolutionGraph] = NEE(tree)
 
     val solutionCandidate: Option[(DUDES.SolutionGraph, String)] =
