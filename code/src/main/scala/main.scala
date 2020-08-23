@@ -35,7 +35,7 @@ object Main {
       .newServerAt("localhost", port)
       .bind(route)
 
-    println(s"Server listening on port$port/\nPress RETURN to stop")
+    println(s"Server listening on port $port/\nPress RETURN to stop")
     StdIn.readLine()
     server
       .flatMap(_.unbind())

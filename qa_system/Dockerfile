@@ -44,4 +44,5 @@ RUN wget "https://lindat.mff.cuni.cz/repository/xmlui/bitstream/handle/11234/1-3
 RUN sbt compile
 
 
-ENTRYPOINT bash
+EXPOSE 8586
+CMD sbt run

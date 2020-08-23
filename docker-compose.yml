@@ -24,10 +24,8 @@ services:
       - "./code/src:/app/src"
       - "./code/build.sbt:/app/build.sbt"
       - "./code/config.json:/app/config.json"
-    # working_dir: /app
-    tty: true
-    stdin_open: true
-    entrypoint: "bash"
+    ports:
+      - 8586:8586
     depends_on:
       - bert_rest
       # - tdb
