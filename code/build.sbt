@@ -6,6 +6,9 @@ scalacOptions := Seq("-unchecked", "-deprecation")
 
 scalaVersion := "2.13.3";
 
+
+val akkaVersion = "2.6.8"
+val akkaHttpVersion = "10.2.0"
 val scalajVersion = "2.4.2";
 val jsonVersion = "1.3.5";
 val jenaVersion = "3.13.0";
@@ -16,6 +19,11 @@ val graphVersion = "1.13.2"
 // JSON parser
 libraryDependencies += "io.spray" %%  "spray-json" % jsonVersion;
 libraryDependencies += "org.scalaj" % "scalaj-http_2.13" % scalajVersion;
+
+libraryDependencies += "com.typesafe.akka" %% "akka-actor" % akkaVersion
+libraryDependencies += "com.typesafe.akka" %% "akka-stream" % akkaVersion
+libraryDependencies += "com.typesafe.akka" %% "akka-http" % akkaHttpVersion
+libraryDependencies += "com.typesafe.akka" %% "akka-http-core" % akkaHttpVersion
 
 
 // Apache Jena

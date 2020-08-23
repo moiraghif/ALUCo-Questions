@@ -270,7 +270,7 @@ object Encoder {
      *   "candidates": [ "list", "of", "candidates" ]
      * }
      */
-    val request = Http("http://localhost:8080/cosine_similarity")
+    val request = Http(getConfig("Doc2Vec.url"))
       .timeout(connTimeoutMs = 60 * 1000, readTimeoutMs = 5 * 60 * 1000)
       .header("content-type", "application/json")
       .postData(jsonIn)

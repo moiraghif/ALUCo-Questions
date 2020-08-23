@@ -2,6 +2,11 @@
     "name": "Pitium",
     "maximumWindow": 5,
     "printLog": "true",
+    "port": 8586,
+
+    "Doc2Vec": {
+        "url": "http://localhost:8080/cosine_similarity"
+    },
     
     "HTTP_triplestore": {
         "name":     "sparql",
