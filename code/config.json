@@ -5,7 +5,7 @@
     "port": 8586,
 
     "Doc2Vec": {
-        "url": "http://localhost:8080/cosine_similarity"
+        "url": "http://bert_rest:8080/cosine_similarity"
     },
     
     "HTTP_triplestore": {

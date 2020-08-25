@@ -14,8 +14,6 @@ services:
   # the Python REST server to use BERT
   bert_rest:
     build: ./bert_rest
-    ports:
-      - 8080:8080
 
   # the main QA system
   qa_system:
@@ -24,8 +22,10 @@ services:
       - "./code/src:/app/src"
       - "./code/build.sbt:/app/build.sbt"
       - "./code/config.json:/app/config.json"
+    command: "sbt run"
     ports:
       - 8586:8586
+    # https://runnable.com/docker/docker-compose-networking
     depends_on:
       - bert_rest
       # - tdb

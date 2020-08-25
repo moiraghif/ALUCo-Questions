@@ -8,6 +8,9 @@ RUN apt update
 RUN mkdir /app
 WORKDIR /app
 
+VOLUME ../code/src:/app/src
+VOLUME ../code/build.sbt:/app/build.sbt
+VOLUME ../code/config.json:/app/config.json
 
 # sbt installation
 RUN apt install -y curl gnupg
@@ -45,4 +48,3 @@ RUN sbt compile
 
 
 EXPOSE 8586
-CMD sbt run

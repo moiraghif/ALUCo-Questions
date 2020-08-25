@@ -32,14 +32,11 @@ object Main {
 
     val port: Int = constants.getConfig("port").toInt
     val server = Http()
-      .newServerAt("localhost", port)
+      .newServerAt("0.0.0.0", port)
       .bind(route)
 
     println(s"Server listening on port $port/\nPress RETURN to stop")
-    StdIn.readLine()
-    server
-      .flatMap(_.unbind())
-      .onComplete(_ => system.terminate())
+    
   }
 
 
