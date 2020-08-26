@@ -5,6 +5,8 @@ import spray.json._
 import DefaultJsonProtocol._
 import scala.io.Source
 
+
+
 object constants {
 
   val configFile = "config.json"
@@ -53,6 +55,21 @@ object constants {
     val serverName = clean(getConfig("HTTP_triplestore.name"))
     return s"$serverURL/$serverName"
   }
+
+
+  def log(): (String) => String = {
+    /**
+     * store and print the log
+     */
+    var totalLog = ""
+    (text: String) => {
+      if (printLog())
+        println(text)
+      totalLog += text
+      totalLog
+    }
+  }
+
 
   def printLog(): Boolean =
     /**

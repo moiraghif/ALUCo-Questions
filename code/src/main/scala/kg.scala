@@ -197,7 +197,7 @@ object NEE {
        |""".stripMargin
 
 
-  def getEntities(subTree: Sentence): List[QuerySolution] = {
+  def getEntities(subTree: Sentence, logger: (String)=>String): List[QuerySolution] = {
     /**
      * get the array of entities for a SUBTREE
      */
@@ -206,7 +206,7 @@ object NEE {
     if (! subTree.isValidTree)
       return List[QuerySolution]()
 
-    if (printLog()) println(s"checking: $subTree")
+    logger(s"checking: $subTree")
 
     /*
      * other strings are analyzed in order to search for combinations of
@@ -229,7 +229,8 @@ object NEE {
   }
 
 
-  def slidingWindow(tree: Sentence, maxSize: Int = getConfig("maximumWindow").toInt):
+  def slidingWindow(tree: Sentence, logger: (String)=>String,
+                  maxSize: Int = getConfig("maximumWindow").toInt):
       Map[Sentence, List[RDFNode]] = {
     /**
      * use a sliding window to get a set of candiadtes for a TREE; window size
@@ -250,7 +251,7 @@ object NEE {
          * it now takes a list of candidates and adds it to the Map if it
          * contains something
          */
-        val topics: List[RDFNode] = getEntities(candidate)
+        val topics: List[RDFNode] = getEntities(candidate, logger)
           .map(e => e.get("?topic"))
 
         if (! topics.isEmpty)
@@ -258,16 +259,15 @@ object NEE {
       }
     }
 
-    if (printLog()) {
-      println("")
-      sentenceTree.foreach(i =>
-        println(s"${i._1}: \n" + i._2.map(i => s" - $i").mkString("\n") + "\n"))
-    }
+    logger("")
+    sentenceTree.foreach(i =>
+      logger(s"${i._1}: \n" + i._2.map(i => s" - $i").mkString("\n") + "\n"))
 
     return sentenceTree.toMap
   }
 
-  def disambiguate(sentence: Sentence, candidates: Map[Sentence, List[RDFNode]]):
+  def disambiguate(sentence: Sentence, candidates: Map[Sentence, List[RDFNode]],
+                 logger: (String)=>String):
       List[DUDES.SolutionGraph] = {
     /**
      * returns a SolutionGraph disambiguation of the SENTENCE according to a
@@ -398,20 +398,18 @@ object NEE {
         new DUDES.SolutionGraph(graph)
       }).toList
 
-    if(printLog()) {
-      out.foreach(println)
-      println("\n\n")
-    }
+    out.foreach(g => logger(s"$g"))
+    logger("\n\n")
 
     return out
   }
 
 
-  def apply(tree: Sentence): List[DUDES.SolutionGraph] = {
+  def apply(tree: Sentence, logger: (String)=>String): List[DUDES.SolutionGraph] = {
     /**
      * return a DUDES representation of the sentence
      */
-    return disambiguate(tree, slidingWindow(tree))
+    return disambiguate(tree, slidingWindow(tree, logger), logger)
   }
 
 }

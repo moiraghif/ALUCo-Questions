@@ -5,7 +5,10 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
+
 import scala.io.StdIn
+import scala.util.parsing.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 
 import semantics.QASystem
@@ -18,24 +21,42 @@ object Main {
     /**
      * statr a simple REST server to accept questions
      */
-    implicit val system: ActorSystem = ActorSystem("QA-System")
+    val name = constants.getConfig("name")
+    implicit val system: ActorSystem = ActorSystem(name)
     implicit val executor = system.dispatcher
+
     val route =
-      path("query") {
+      path("info") {
+        get {
+          complete(HttpEntity(ContentTypes.`text/html(UTF-8)`,
+                              s"<h1>$name is online</h1>"))
+        }
+      } ~
+      path("ask") {
+        get {
+          complete(HttpEntity(ContentTypes.`text/html(UTF-8)`,
+                              s"<h1>Ask $name</h1>"))
+        } ~
         post {
-          entity(as[String]) { question =>
-            complete(HttpEntity(ContentTypes.`text/html(UTF-8)`,
-                                QASystem(question)))
+          entity(as[String]) { question =>        
+            val startTime = System.nanoTime()
+            val (ans, log) = QASystem(question)
+            val deltaTime = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startTime)
+            val out: Map[String, String] = Map(
+              "question" -> question,
+              "answere" -> ans,
+              "log" -> log,
+              "time" -> deltaTime.toString())
+            complete(JSONObject(out).toString())
           }
         }
       }
-
     val port: Int = constants.getConfig("port").toInt
     val server = Http()
       .newServerAt("0.0.0.0", port)
       .bind(route)
 
-    println(s"Server listening on port $port/\nPress RETURN to stop")
+    println(s"Server listening on port $port")
     
   }
 

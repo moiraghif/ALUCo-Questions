@@ -144,14 +144,14 @@ object Parser {
       .toMap
   }
 
-  def getLanguage(text: String): String = {
+  def getLanguage(text: String, logger: (String)=>String): String = {
     /**
      * get the language of a TEXT (the result is in ISO-639 format)
      * https://www.loc.gov/standards/iso639-2/php/code_list.php
      */
     val detector = new OptimaizeLangDetector().loadModels(modelsList.keySet.asJava)
     val out = detector.detect(text)
-    if (printLog()) println(out.getLanguage() + ": " + out.getRawScore() + "")
+    logger(out.getLanguage() + ": " + out.getRawScore() + "")
     return out.getLanguage()
   }
 
@@ -160,7 +160,6 @@ object Parser {
      * select the right udpipe model for the LANGUAGE
      */
     val model = modelsList(language)
-    if (printLog()) println("Loading model: " + model + " ...")
     return Model.load(model) 
   }
 
@@ -177,7 +176,7 @@ object Parser {
     }
   }
 
-  def getTree(text: String, language: String): Sentence = {
+  def getTree(text: String, language: String, logger: (String)=>String): Sentence = {
     /**
      * use a udpipe model to get a tree representation for a TEXT in a specified LANGUAGE
      */
@@ -212,13 +211,13 @@ object Parser {
     return new Sentence(out.toMap, language)
   }
 
-  def apply(text: String): Sentence = {
+  def apply(text: String, logger: (String)=>String): Sentence = {
     /**
      * get a Sentence representation for the desired TEXT
      */
-    val lang = getLanguage(text)
-    val tree = getTree(text, lang)
-    if (printLog()) println(tree.toTable())
+    val lang = getLanguage(text, logger)
+    val tree = getTree(text, lang, logger)
+    logger(tree.toTable())
     return tree
   }
 }

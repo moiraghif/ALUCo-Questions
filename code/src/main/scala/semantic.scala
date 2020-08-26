@@ -28,20 +28,18 @@ object QASystem {
     return Some(KG.queryAsk(query).toString)
   }
 
-  def solve(candidates: List[DUDES.SolutionGraph], question: Sentence):
+  def solve(candidates: List[DUDES.SolutionGraph], question: Sentence, logger: (String)=>String):
       Option[(DUDES.SolutionGraph, String)] = {
     /**
      * get the best candidate and expand the graph in that direction
      */
-    if (printLog())
-      println(s"\nNew iteration: ${candidates.length} candidates remaining\n")
+    logger(s"\nNew iteration: ${candidates.length} candidates remaining\n")
 
     if (candidates.isEmpty) {
       /*
        * it is not possible to check in any dierction now
        */
-      if (printLog())
-        println("No solution found")
+      logger("No solution found")
       return null
     }
 
@@ -61,10 +59,8 @@ object QASystem {
 
     if (! getTopicResults.isDefined) {
       // the best graph is completed, no need to explore further
-      if (printLog()) {
-        bestCandidate.printDUDES()
-        println(s"\n\nSOLUTION FOUND [${math.exp(bestCandidate.score)}]: $question\n\n$bestCandidate")
-      }
+      bestCandidate.printDUDES(logger)
+      logger(s"\n\nSOLUTION FOUND [${math.exp(bestCandidate.score)}]: $question\n\n$bestCandidate")
       /*
        * if the query is well formulated, it retrieves an answer: there is the
        * possibility that the graph is not well formulated; in that case the
@@ -73,7 +69,7 @@ object QASystem {
       val out = getSolution(bestCandidate)
 
       if (! out.isDefined)
-        return solve(candidates.filter(c => c != bestCandidate), question)
+        return solve(candidates.filter(c => c != bestCandidate), question, logger)
       return Some((bestCandidate, out.get))
     }
 
@@ -82,11 +78,9 @@ object QASystem {
     val nextSteps: List[Sentence] = exploreTree(sentence + topic.sentence,
                                                 topic.sentence)
 
-    if (printLog()) {
-      println(bestCandidate)
-      bestCandidate.printDUDES()
-      println(s"checking from $topic:"); nextSteps.foreach(println)
-    }
+    logger(s"$bestCandidate")
+    bestCandidate.printDUDES(logger)
+    logger(s"checking from $topic:" + nextSteps.mkString("\n"))
 
     /*
      * checks if there is an interrogative pronoun/adverb/something that
@@ -99,7 +93,9 @@ object QASystem {
           val newDudes = new DUDES.IncognitaDUDES(nextStepTree, topic.dist + 1)
           val newSolution = bestCandidate.addDUDES(topic ~> newDudes)
           if (newSolution.isDefined)
-            return solve(candidates.filter(_ != bestCandidate) :+ newSolution.get, question)
+            return solve(candidates.filter(_ != bestCandidate) :+ newSolution.get,
+                         question,
+                         logger)
         })
     }
 
@@ -221,19 +217,20 @@ object QASystem {
      */
     if (perfectMatches.isEmpty) {
       // uncomment to make fast tests
-      // return solve(candidates.filter(c => c != bestCandidate), question)
+      // return solve(candidates.filter(c => c != bestCandidate), question, logger)
 
-      if (printLog())
-        println("Computing fuzzy matches...")
+      logger("Computing fuzzy matches...")
 
       val fuzzyMatches: List[DUDES.SolutionGraph] = nextSteps.map(
         next => FuzzyMatch(bestCandidate, topic, bestCandidateLexicalization, next)).flatten
 
       return solve(candidates.filter(c => c != bestCandidate) ++ fuzzyMatches,
-                   question)
+                   question,
+                   logger)
     }
     return solve(candidates.filter(c => c != bestCandidate) ++ perfectMatches,
-                 question)
+                 question,
+                 logger)
   }
 
 
@@ -314,24 +311,26 @@ object QASystem {
   }
 
 
-  def apply(question: String): String = {
+  def apply(question: String): (String, String) = {
     /**
      * an abstraction of the QA system: it does the whole process starting from
      * just a QUESTION
      */
 
-    val tree: Sentence = Parser(cleanQuestion(question))
-    val sentenceGraphs: List[DUDES.SolutionGraph] = NEE(tree)
+    val logger = log()
+    val tree: Sentence = Parser(cleanQuestion(question), logger)
+    val sentenceGraphs: List[DUDES.SolutionGraph] = NEE(tree, logger)
 
     val solutionCandidate: Option[(DUDES.SolutionGraph, String)] =
-      solve(sentenceGraphs, tree)
+      solve(sentenceGraphs, tree, logger)
 
     if (solutionCandidate.isDefined) {
       val solution = solutionCandidate.get
-      return solution._2
+      return (solution._2, logger(solution._2))
     }
 
-    return "<!> ERROR: no answer for this question."
+    val ans = "<!> ERROR: no answer for this question."
+    return (ans, logger(ans))
   }
 
 }

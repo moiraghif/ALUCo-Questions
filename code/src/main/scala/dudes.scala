@@ -341,11 +341,11 @@ object DUDES {
     }
 
 
-    def printDUDES(): Unit = {
+    def printDUDES(logger: (String)=>String): Unit = {
       /**
        * just for debugging pourposes: print a list of DUDES with type and variable
        */
-      println("DUDES:")
+      logger("DUDES:")
       val nodes = getNodes().map(n => n.value)
       nodes.foreach(n => {
                       val text: String = n match {
@@ -355,12 +355,12 @@ object DUDES {
                         case n: ClassIncognitaDUDES => "Class of Incognita"
                         case n: IncognitaDUDES => "Incognita"
                       }
-                      println(s"$text: ${n.sentence} =[${(100 * n.score).round}%]=> $n")
+                      logger(s"$text: ${n.sentence} =[${(100 * n.score).round}%]=> $n")
                     })
       graph.edges.foreach(e => {
                             val from = e._1.value
                             val to = e._2.value
-                            println(s"$from ~> $to")
+                            logger(s"$from ~> $to")
                           })
     }
   }
