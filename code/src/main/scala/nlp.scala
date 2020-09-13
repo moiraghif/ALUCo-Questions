@@ -239,7 +239,13 @@ object POS {
 
   def apply(sentence: Sentence): Boolean =
     sentence.pos.exists(word => openClassPOS(word)) || isInterrogative(sentence)
-      
+  def apply(subtree: Sentence, tree: Sentence): Boolean = {
+    if (tree.link.filter(_ == "nsubj").length > 1)
+      isInterrogative(subtree) || openPOS
+        .filterNot(_ == "VERB")
+        .exists(pos => subtree.pos.contains(pos))
+    else apply(subtree)
+  }
 }
 
 

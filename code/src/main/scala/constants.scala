@@ -11,6 +11,9 @@ object constants {
 
   val configFile = "config.json"
 
+  val labelRelation = getConfig("labelRelation")
+  val indent = " " * getConfig("indentation").toInt
+
   def getConfig(field: String): String = {
     /**
      * read a FIELD of the config json file; to read a sub-field just split with
@@ -65,7 +68,7 @@ object constants {
     (text: String) => {
       if (printLog())
         println(text)
-      totalLog += text
+      totalLog += s"$text"
       totalLog
     }
   }

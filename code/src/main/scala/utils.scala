@@ -71,4 +71,31 @@ object utils {
         tree.get(index.toArray)
       })
   }
+
+
+   def getElemDepth(elem: String, tree: Sentence): Int = {
+    /**
+     * get the depth of an ELEMent in a (sub)TREE
+     */
+    val root = getTreeRoot(tree)
+    if (root.isEmpty) return -1
+    def step(e: String, n: Int): Int = {
+      if (e == root) return n
+      else {
+        val p = tree.id.indexOf(e)
+        step(tree.dep(p), n + 1)
+      }
+    }
+    return step(elem, 0)
+   }
+
+  def getTreeDepth(subtree: Sentence, tree: Sentence): Int =
+    /**
+     * get the maximum depth of a (SUB)TREE
+     */
+    tree.id
+      .filter(subtree.id.contains(_))
+      .map(getElemDepth(_, tree))
+      .min
+
 }

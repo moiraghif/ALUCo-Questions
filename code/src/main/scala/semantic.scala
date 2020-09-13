@@ -33,14 +33,13 @@ object QASystem {
     /**
      * get the best candidate and expand the graph in that direction
      */
-    logger(s"\nNew iteration: ${candidates.length} candidates remaining\n")
 
     if (candidates.isEmpty) {
       /*
        * it is not possible to check in any dierction now
        */
       logger("No solution found")
-      return null
+      return None
     }
 
     /*
@@ -48,6 +47,7 @@ object QASystem {
      * the higher score and the higher lenght
      */
     val maxScore: Double = candidates.map(g => g.score).maxBy(math.exp)
+    logger(s"\nNew iteration: ${candidates.length} candidates remaining =[score]=> $maxScore\n")
     val bestCandidate: DUDES.SolutionGraph = candidates
       .filter(g => g.score == maxScore)
       .sortBy(g => g.length)
@@ -76,18 +76,18 @@ object QASystem {
     // if the graph can be expanded, take the direction
     val (topic: DUDES.MainDUDES, sentence: Sentence) = getTopicResults.get
     val nextSteps: List[Sentence] = exploreTree(sentence + topic.sentence,
-                                                topic.sentence)
+                                                topic.sentence,
+                                                question)
 
     logger(s"$bestCandidate")
     bestCandidate.printDUDES(logger)
-    logger(s"checking from $topic:" + nextSteps.mkString("\n"))
 
     /*
      * checks if there is an interrogative pronoun/adverb/something that
      * indicates what to retrieve as answer: in that case does not expand the
      * graph but insert a sign with the variable to retrieve
      */
-    if (! nextSteps.exists(s => s.id.exists(POS.openClassPOS))) {
+    if (! nextSteps.exists(word => word.pos.exists(POS.openClassPOS))) {
       nextSteps.foreach(nextStepTree =>
         if (POS.isInterrogative(nextStepTree)) {
           val newDudes = new DUDES.IncognitaDUDES(nextStepTree, topic.dist + 1)
@@ -97,13 +97,19 @@ object QASystem {
                          question,
                          logger)
         })
+      val out = getSolution(bestCandidate)
+      if (! out.isDefined)
+        return solve(candidates.filter(c => c != bestCandidate), question, logger)
+      return Some((bestCandidate, out.get))
     }
 
+    logger(s"checking from $topic: \n" + nextSteps.map(s => s" - $s").mkString("\n"))
     /*
      * a boring part: it just takes a list of nodes and lexicalizations for all
      * possible expansions in the graph, depending on the class of the topic
      * DUDES and the possible candidates in the following step
      */
+    logger("retrieving candidates...")
     val bestCandidateLexicalization: Map[String, Map[RDFNode, List[String]]] = topic match {
       case n: DUDES.RelationDUDES => {
         val edge1 = bestCandidate.graph.edges.filter(e => e._1.value == topic).headOption
@@ -116,25 +122,24 @@ object QASystem {
             KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
                   |  ?object $topic ${edge1.get._2.value}.
                   |  ?object a ?class.
-                  |  OPTIONAL { ?object rdfs:label ?object_label. }
+                  |  OPTIONAL { ?object $labelRelation ?object_label. }
                   |}""".stripMargin), sentence.lang, "object"),
-          "class_in" -> Map[RDFNode, List[String]](),
-          "class_out" -> Map[RDFNode, List[String]](),
+          "class" -> Map[RDFNode, List[String]](),
           "class_incognita_in" -> Map[RDFNode, List[String]](),
           "class_incognita_out" -> Lexicalization(
             KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
                   |  ?object $topic ${edge1.get._2.value}.
                   |  ?object a ?class.
-                  |  OPTIONAL { ?class rdfs:label ?class_label. }
+                  |  OPTIONAL { ?class $labelRelation ?class_label. }
                   |}""".stripMargin), sentence.lang, "class"))
-        else if (edge2.isDefined ) Map(
+        else if (edge2.isDefined) Map(
           "relation_in" -> Map[RDFNode, List[String]](),
           "relation_out" -> Map[RDFNode, List[String]](),
           "object_in" -> Lexicalization(
             KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
                   |  ${edge2.get._1.value} $topic ?object.
                   |  ?object a ?class.
-                  |  OPTIONAL { ?object rdfs:label ?object_label. }
+                  |  OPTIONAL { ?object $labelRelation ?object_label. }
                   |}""".stripMargin), sentence.lang, "object"),
           "object_out" -> Map[RDFNode, List[String]](),
           "class" -> Map[RDFNode, List[String]](),
@@ -142,64 +147,130 @@ object QASystem {
             KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
                   |  ${edge2.get._1.value} $topic ?object.
                   |  ?object a ?class.
-                  |  OPTIONAL { ?class rdfs:label ?class_label. }
+                  |  OPTIONAL { ?class $labelRelation ?class_label. }
                   |}""".stripMargin), sentence.lang, "class"),
           "class_incognita_out" -> Map[RDFNode, List[String]]())
-        else Map(  // it should be an unreachable state, but just to be sure...
+        else Map(
           "relation_in" -> Map[RDFNode, List[String]](),
           "relation_out" -> Map[RDFNode, List[String]](),
-          "object_in" -> Map[RDFNode, List[String]](),
-          "object_out" -> Map[RDFNode, List[String]](),
-          "class" -> Map[RDFNode, List[String]](),
-          "class_incognita_in" -> Map[RDFNode, List[String]](),
-          "class_incognita_out" -> Map[RDFNode, List[String]]())
-      }
-      case _ => {
-        Map(
-          "relation_in" -> Lexicalization(
-            KG(s"""SELECT DISTINCT ?relation ?relation_label WHERE {
-                  |  $topic ?relation ?object.
-                  |  ?object a ?class.
-                  |  OPTIONAL { ?relation rdfs:label ?relation_label. }
-                  |}""".stripMargin), sentence.lang, "relation"),
-          "relation_out" -> Lexicalization(
-            KG(s"""SELECT DISTINCT ?relation ?relation_label WHERE {
-                  |  ?object ?relation $topic.
-                  |  ?object a ?class.
-                  |  OPTIONAL { ?relation rdfs:label ?relation_label. }
-                  |}""".stripMargin), sentence.lang, "relation"),
-          "object_in" -> Lexicalization(
+          "object_in" ->  Lexicalization(
             KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
-                  |  $topic ?relation ?object.
+                  |  ?subject $topic ?object.
                   |  ?object a ?class.
-                  |  OPTIONAL { ?object rdfs:label ?object_label. }
-                  |  FILTER NOT EXISTS { $topic  a  ?object. }
+                  |  OPTIONAL { ?object $labelRelation ?object_label. }
                   |}""".stripMargin), sentence.lang, "object"),
           "object_out" -> Lexicalization(
             KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
-                  |  ?object ?relation $topic.
+                  |  ?object $topic ?subject.
                   |  ?object a ?class.
-                  |  OPTIONAL { ?object rdfs:label ?object_label. }
-                  |  FILTER NOT EXISTS { $topic  a  ?object. }
+                  |  OPTIONAL { ?object $labelRelation ?object_label. }
                   |}""".stripMargin), sentence.lang, "object"),
-          "class" -> Lexicalization(
-            KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
-                  |  $topic a ?class.
-                  |  OPTIONAL { ?class rdfs:label ?class_label. } 
-                  |}""".stripMargin), sentence.lang, "class"),
+          "class" -> Map[RDFNode, List[String]](),
           "class_incognita_in" -> Lexicalization(
             KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
-                  |  $topic ?relation ?object.
+                  |  ?subject $topic ?object.
                   |  ?object a ?class.
-                  |  OPTIONAL { ?class rdfs:label ?class_label. } 
+                  |  OPTIONAL { ?class $labelRelation ?class_label. }
                   |}""".stripMargin), sentence.lang, "class"),
           "class_incognita_out" -> Lexicalization(
             KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
-                  |  ?object ?relation $topic.
+                  |  ?object $topic ?subject.
                   |  ?object a ?class.
-                  |  OPTIONAL { ?class rdfs:label ?class_label. }
+                  |  OPTIONAL { ?class $labelRelation ?class_label. }
                   |}""".stripMargin), sentence.lang, "class"))
-      }      
+      }
+
+      case n: DUDES.ClassIncognitaDUDES =>
+        Map(
+        "relation_in" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?relation ?relation_label WHERE {
+                |  ?subject a $topic.
+                |  ?subject ?relation ?object.
+                |  ?object a ?class.
+                |  OPTIONAL { ?relation $labelRelation ?relation_label. }
+                |}""".stripMargin), sentence.lang, "relation"),
+        "relation_out" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?relation ?relation_label WHERE {
+                |  ?subject a $topic.
+                |  ?object ?relation ?subject.
+                |  ?object a ?class.
+                |  OPTIONAL { ?relation $labelRelation ?relation_label. }
+                |}""".stripMargin), sentence.lang, "relation"),
+        "object_in" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
+                |  ?subject a $topic.
+                |  ?subject ?relation ?object.
+                |  OPTIONAL { ?object $labelRelation ?object_label. }
+                |  FILTER NOT EXISTS { ?subject  a  ?object. }
+                |}""".stripMargin), sentence.lang, "object"),
+        "object_out" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
+                |  ?subject a $topic.
+                |  ?object ?relation ?subject.
+                |  OPTIONAL { ?object $labelRelation ?object_label. }
+                |  FILTER NOT EXISTS { ?subject  a  ?object. }
+                |}""".stripMargin), sentence.lang, "object"),
+        "class" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
+                |  ?subject a $topic.
+                |  ?subject a ?class.
+                |  OPTIONAL { ?class $labelRelation ?class_label. } 
+                |}""".stripMargin), sentence.lang, "class"),
+        "class_incognita_in" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
+                |  ?subject a $topic.
+                |  ?subject ?relation ?object.
+                |  ?object a ?class.
+                |  OPTIONAL { ?class $labelRelation ?class_label. } 
+                |}""".stripMargin), sentence.lang, "class"),
+        "class_incognita_out" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
+                |  ?subject a $topic.
+                |  ?object ?relation ?subject.
+                |  ?object a ?class.
+                |  OPTIONAL { ?class $labelRelation ?class_label. }
+                |}""".stripMargin), sentence.lang, "class"))
+
+      case _ => Map(
+        "relation_in" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?relation ?relation_label WHERE {
+                |  $topic ?relation ?object.
+                |  OPTIONAL { ?relation $labelRelation ?relation_label. }
+                |}""".stripMargin), sentence.lang, "relation"),
+        "relation_out" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?relation ?relation_label WHERE {
+                |  ?object ?relation $topic.
+                |  OPTIONAL { ?relation $labelRelation ?relation_label. }
+                |}""".stripMargin), sentence.lang, "relation"),
+        "object_in" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
+                |  $topic ?relation ?object.
+                |  OPTIONAL { ?object $labelRelation ?object_label. }
+                |  FILTER NOT EXISTS { $topic  a  ?object. }
+                |}""".stripMargin), sentence.lang, "object"),
+        "object_out" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?object ?object_label WHERE {
+                |  ?object ?relation $topic.
+                |  OPTIONAL { ?object $labelRelation ?object_label. }
+                |  FILTER NOT EXISTS { $topic  a  ?object. }
+                |}""".stripMargin), sentence.lang, "object"),
+        "class" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
+                |  $topic a ?class.
+                |  OPTIONAL { ?class $labelRelation ?class_label. } 
+                |}""".stripMargin), sentence.lang, "class"),
+        "class_incognita_in" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
+                |  $topic ?relation ?object.
+                |  ?object a ?class.
+                |  OPTIONAL { ?class $labelRelation ?class_label. } 
+                |}""".stripMargin), sentence.lang, "class"),
+        "class_incognita_out" -> Lexicalization(
+          KG(s"""SELECT DISTINCT ?class ?class_label WHERE {
+                |  ?object ?relation $topic.
+                |  ?object a ?class.
+                |  OPTIONAL { ?class $labelRelation ?class_label. }
+                |}""".stripMargin), sentence.lang, "class"))
     }
 
     /*
@@ -207,6 +278,7 @@ object QASystem {
      * answer to the OOV problem (OOV terms are, generally speaking, thecnical
      * terms, so a perfect correspondence is needed)
      */
+    logger("Computing perfect matches...")
     val perfectMatches: List[DUDES.SolutionGraph] = nextSteps.map(
       next => PerfectMatch(bestCandidate, topic, bestCandidateLexicalization, next)).flatten
 
@@ -234,24 +306,38 @@ object QASystem {
   }
 
 
-  def expandGraph(node: RDFNode, out: Boolean): List[QuerySolution] = {
+  def expandGraph(node: DUDES.MainDUDES, out: Boolean): List[QuerySolution] = {
     /**
      * expand the graph starting from a NODE in either directions in or OUT
      */
     val queryDirection = out match {
-      case true => s"<$node>  ?relation  ?object"
-      case _ => s"?object  ?relation  <$node>"
+      case true => node match {
+        case n: DUDES.RelationDUDES =>       s"?subject $node ?object."
+
+        case n: DUDES.ClassIncognitaDUDES => s"?subject ?relation ?object. \n  " +
+                                             s"?subject a $node."
+
+        case _ =>                            s"$node ?relation ?object."
+      }
+      case false => node match {
+        case n: DUDES.RelationDUDES =>       s"?object $node ?subject."
+
+        case n: DUDES.ClassIncognitaDUDES => s"?object ?relation ?subject. \n  " +
+                                             s"?subject a $node."
+
+        case _ =>                            s"?object ?realtion $node."
+      }
     }
-    val query = s"""SELECT ?relation  ?object  ?class
+    val query = s"""SELECT ?relation ?object ?class
                    |WHERE {
-                   |  $queryDirection .
-                   |  OPTIONAL { ?object  a  ?class . }
+                   |  $queryDirection
+                   |  OPTIONAL { ?object a ?class. }
                    |}""".stripMargin
     return KG(query)
   }
 
 
-  def exploreTree(tree: Sentence, topic: Sentence): List[Sentence] = {
+  def exploreTree(tree: Sentence, topic: Sentence, question: Sentence): List[Sentence] = {
     /**
      * get a list of candidates for the next step, starting from a TOPIC going down in the TREE
      */
@@ -262,16 +348,16 @@ object QASystem {
       /**
        * check if a SENTENCE can be considered a candidate
        */
-      sentence.isValidTree && sentence.pos.exists(POS.openClassPOS)
+      sentence.isValidTree && POS(sentence, question)
 
     def slidingWindow(subtree: Sentence): List[Sentence] = {
       /**
        * use a sliding window on the SUBTREE in order to take all candidates
        */
-      var out: List[Sentence] = List(subtree)
+      var out: List[Sentence] = List()
 
       for (i    <- 0 until subtree.length;
-           size <- 1 to (subtree.length - i)) {
+           size <- 1 to Math.min(subtree.length - i, getConfig("maximumWindow").toInt)) {
 
         // the candidate sentence
         val nextSentence = subtree.getPortion(i, i + size)
@@ -281,22 +367,23 @@ object QASystem {
          * entity (the subtree): in that case skip the candidate; otherwise add
          * the candidate to the output list
          */
-        if (nextSentence.id.head.toInt < topic.id.head.toInt) {
-          val p0 = tree.id.indexOf(nextSentence.id.head)
-          val p1 = tree.id.indexOf(topic.id.head)
-          val infra = tree.getPortion(p0, p1)
-          if (! infra.id.exists(POS.openClassPOS) && check(nextSentence))
-            out = out :+ nextSentence
-        } else {
-          val p0 = tree.id.indexOf(topic.id.head)
-          val p1 = tree.id.indexOf(nextSentence.id.head)
-          val infra = tree.getPortion(p0, p1)
-          if (! infra.id.exists(POS.openClassPOS) && check(nextSentence))
-            out = out :+ nextSentence
-        }
+        if (check(nextSentence))
+          if (nextSentence.id.head.toInt < topic.id.head.toInt) {
+            val p0 = tree.id.indexOf(nextSentence.id.last)
+            val p1 = tree.id.indexOf(topic.id.head)
+            val infra = tree.getPortion(p0 + 1, p1)
+            if (! POS(infra, question))
+              out = out :+ nextSentence
+          } else {
+            val p0 = tree.id.indexOf(topic.id.last)
+            val p1 = tree.id.indexOf(nextSentence.id.head)
+            val infra = tree.getPortion(p0 + 1, p1)
+            if (! POS(infra, question))
+              out = out :+ nextSentence
+          }
       }
 
-      return out
+      return out.toSet.toList.reverse
     }
 
     return subTrees.map(slidingWindow).toList.flatten
@@ -338,13 +425,17 @@ object QASystem {
 
 object PerfectMatch {
 
-  def perfectMatch(candidate: String, possibilities: List[String]): Boolean =
+  def perfectMatch(candidate: String, possibilities: List[String]): Boolean = {
     /**
      * the match is considered perfect if the two strings (lowercased) are equal
      */
-    possibilities
-      .map(p => p.toLowerCase())
-      .contains(candidate.toLowerCase())
+    val c = Lexicalization.cleanText(candidate).toLowerCase()
+    return possibilities
+      .exists(p => {
+                val pClean = Lexicalization.cleanText(Lexicalization.cleanLabel(p))
+                pClean.toLowerCase() == c
+              })
+  }
 
   /*
    * all the following functions have the same general structure: the

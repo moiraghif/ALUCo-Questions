@@ -40,11 +40,15 @@ object Main {
         post {
           entity(as[String]) { question =>        
             val startTime = System.nanoTime()
-            val (ans, log) = QASystem(question)
+            val (ans, log) = try
+              QASystem(question)
+            catch {
+              case e: Throwable => ("", s"Exception occurred during execution:\n$e")
+            }
             val deltaTime = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startTime)
             val out: Map[String, String] = Map(
               "question" -> question,
-              "answere" -> ans,
+              "answer" -> ans,
               "log" -> log,
               "time" -> deltaTime.toString())
             complete(JSONObject(out).toString())

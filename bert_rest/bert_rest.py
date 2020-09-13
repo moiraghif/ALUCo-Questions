@@ -7,6 +7,7 @@ import torch
 # understands what you want.
 # Remember also to change the models in the BertServer class!
 WORD_EMBEDDING_MODEL = "bert-base-multilingual-cased"
+MAX_LEN = 512
 
 
 def cos_sim(v1, v2):
@@ -73,6 +74,8 @@ class BertServer:
     def get_tokens(self, sent):
         "returns the list of tokens for a SENT and its length"
         tokens = self.tokenizer.encode(sent)
+        if len(tokens) >= MAX_LEN:
+            tokens = tokens[0:(MAX_LEN - 1)]
         return (tokens, len(tokens))
 
     def __init__(self):

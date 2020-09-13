@@ -1,7 +1,9 @@
 {
     "name": "Pitium",
     "maximumWindow": 5,
+    "labelRelation": "rdfs:label",
     "printLog": "true",
+    "indentation": 2,
     "port": 8586,
 
     "Doc2Vec": {

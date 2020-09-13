@@ -11,7 +11,7 @@ val akkaVersion = "2.6.8"
 val akkaHttpVersion = "10.2.0"
 val scalajVersion = "2.4.2";
 val jsonVersion = "1.3.5";
-val jenaVersion = "3.13.0";
+val jenaVersion = "3.16.0";
 val tikaVersion = "1.24.1";
 val graphVersion = "1.13.2"
 
@@ -39,6 +39,3 @@ libraryDependencies += "org.apache.tika" % "tika-langdetect"  % tikaVersion;
 
 // Graphs
 libraryDependencies += "org.scala-graph" % "graph-core_2.13" % graphVersion;
-// resolvers += "twitter" at "http://maven.twttr.com"
-// libraryDependencies += "com.twitter" %% "cassovary-core" % "7.1.0"
-// libraryDependencies += "it.unimi.dsi" % "fastutil" % "7.0.7"

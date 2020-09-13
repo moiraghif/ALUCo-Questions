@@ -69,9 +69,14 @@ object DUDES {
       /**
        * get the value (constant or variable) of the DUDES
        */
-      if (variable.isDefined)  s"<${variable.get}>"
-      else                     s"?var_${getTreeRoot(sentence)}"
+      if (variable.isDefined) {
+        val v = variable.get
+        if (v.isLiteral) "\"" + v + "\""
+        else s"<$v>"
+      } else
+          getIncognita()
 
+    def getIncognita(): String = s"?var_${getTreeRoot(sentence)}"
     override def toString(): String =
       getVariable()
 
@@ -173,7 +178,7 @@ object DUDES {
       /**
        * get nodes from the closer to the more distant from the topic node
        */
-      graph.nodes.toList.sortBy(getDistance)
+      graph.nodes.toList.sortBy(getDistance).reverse
 
 
     def addDUDES(relation: DiEdge[MainDUDES]): Option[SolutionGraph] = {
@@ -210,10 +215,8 @@ object DUDES {
        * operating as a sort of unknown object; otherwhise get the linked
        * variable
        */
-      return incognitaNodes.map(e => e._1.value match {
-                                  case n: RelationDUDES => e._2.value.getVariable()
-                                  case _ => e._1.value.getVariable()
-                                })
+      return incognitaNodes
+        .map(e => e._1.value.getIncognita())
         .toSet.toList
     }
 
@@ -224,7 +227,7 @@ object DUDES {
        * chosen according to the presence of IncognitaDUDES (see getVariables
        * for more info)
        */
-      val queryText = triples.map(triple => s"  $triple").mkString("\n")
+      val queryText = triples.mkString("\n")
       val incognitaNodes = getVariables()
 
       if (incognitaNodes.isEmpty)
@@ -232,7 +235,7 @@ object DUDES {
                   |$queryText
                   |}""".stripMargin
 
-      val incognita = incognitaNodes.mkString(" ")
+      val incognita = incognitaNodes.mkString("  ")
       return s"""SELECT DISTINCT $incognita WHERE {
                 |$queryText
                 |}""".stripMargin
@@ -266,13 +269,29 @@ object DUDES {
                 })
         .foreach(r => {
                    val edges = r.edges.toList 
-                   val edgesIn = edges.filter(e => e._2 == r)
                    val edgesOut = edges.filter(e => e._1 == r)
+                   val edgesIn = edges.filter(e => e._2 == r)
                    for (eIn  <- edgesIn;
                         eOut <- edgesOut) {
-                     val s = eIn._1.value.getVariable()
-                     val o = eOut._2.value.getVariable()
-                     val triple = s"$s  ${r.value}  $o ."
+                     val e1: MainDUDES = eOut._2.value
+                     val e2: MainDUDES = eIn._1.value
+                     val s = e2 match {
+                       case n: ClassIncognitaDUDES => {
+                         val t = e2.getIncognita()
+                         s"$t  a  $e2 ." + s"\n$indent" + s"$t"
+                       }
+                       case n: IncognitaDUDES => r.getIncognita()
+                       case _ => s"$e2"
+                     }
+                     val o = e1 match {
+                       case n: ClassIncognitaDUDES => {
+                         val t = e1.getIncognita()
+                         s"$t ." + s"\n$indent" + s"$t  a  $e1"
+                       }
+                       case n: IncognitaDUDES => r.getIncognita()
+                       case _ => s"$e1"
+                     }
+                     val triple = s"$indent$s  ${r.value}  $o ."
                      if (! triples.contains(triple))
                        triples = triples :+ triple
                    }
@@ -290,28 +309,37 @@ object DUDES {
       graph.edges
         .filter(e => {
                   val e1: Boolean = e._1.value match {
-                    case n: RelationDUDES => false
-                    case _ => true
+                    case n: RelationDUDES  => false
+                    case _                 => true
                   }
                   val e2: Boolean = e._2.value match {
-                    case n: RelationDUDES => false
+                    case n: RelationDUDES  => false
                     case n: IncognitaDUDES => false
-                    case _ => true
+                    case _                 => true
                   }
                   e1 && e2})
         .foreach(e => {
                    val e1 = e._1.value
                    val e2 = e._2.value
+                   val s = e1 match {
+                     case n: ClassIncognitaDUDES => {
+                       val t = e1.getIncognita()
+                       s"$t  a  $e1 ." + s"\n$indent" + s"$t"
+                     }
+                     case _ => s"$e1"
+                   }
                    val r = e2 match {
                      case n: ClassDUDES => "a"
-                     case n: ClassIncognitaDUDES => {
-                       val newRelation = getRelation(e1, e2)
-                       val o = e2.getVariable()
-                       s"$newRelation  $o .  $o  a"
-                     }
-                     case _ => getRelation(e1, e2)
+                     case _             => getRelation(e1, e2)
                    }
-                   val triple = s"$e1  $r  $e2 ."
+                   val o = e2 match {
+                     case n: ClassIncognitaDUDES => {
+                       val t = e2.getIncognita()
+                       s"$t ." + s"\n$indent" + s"$t  a  $e2"
+                     }
+                     case _ => s"$e2"
+                   }
+                   val triple = s"$indent$s  $r  $o ."
                    if (! triples.contains(triple))
                      triples = triples :+ triple
                  })
@@ -329,7 +357,30 @@ object DUDES {
         .foreach(n => {
                    val dudes = n._2.value
                    val prev = n._1.value
-                   val triple = s"$prev  a  $dudes ."
+                   val triple = s"$indent$prev  a  $dudes ."
+                   if (! triples.contains(triple))
+                     triples = triples :+ triple
+                 })
+      /*
+       * a ClassIncognitaDUDES linked to an IncognitaDUDES is the same as a
+       * ClassDUDES, so write it in the same way
+       */
+      graph.edges
+        .filter(n => {
+                  val e1 = n._1.value match {
+                    case n: ClassIncognitaDUDES => true
+                    case _ => false
+                  }
+                  val e2 = n._2.value match {
+                    case n: IncognitaDUDES => true
+                    case _ => false
+                  }
+                  e1 && e2
+                })
+        .foreach(n => {
+                   val c = n._1.value.getVariable()
+                   val i = n._1.value.getIncognita()
+                   val triple = s"$indent$i  a  $c ."
                    if (! triples.contains(triple))
                      triples = triples :+ triple
                  })
@@ -360,7 +411,7 @@ object DUDES {
       graph.edges.foreach(e => {
                             val from = e._1.value
                             val to = e._2.value
-                            logger(s"$from ~> $to")
+                            logger(s"$from => $to")
                           })
     }
   }

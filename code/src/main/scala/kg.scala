@@ -60,10 +60,13 @@ object KG {
      * this function is polite: it respects the latency setted in config.json
      */
     Thread.sleep(getLatency().toLong)
-    try queryKG(query).execAsk()
+    val q = queryKG(query)
+    val out = try q.execAsk()
     catch {
-      case e: org.apache.jena.sparql.resultset.ResultSetException => return false
+      case e: org.apache.jena.sparql.resultset.ResultSetException => false
     }
+    q.close()
+    return out
   }
 
   def querySelect(query: String): List[QuerySolution] = { 
@@ -73,10 +76,13 @@ object KG {
      * this function is polite: it respects the latency setted in config.json
      */
     Thread.sleep(getLatency().toLong)
-    try queryKG(query).execSelect().asScala.toList
+    val q = queryKG(query) 
+    val out = try q.execSelect().asScala.toList
     catch {
-      case e: org.apache.jena.sparql.resultset.ResultSetException => return List[QuerySolution]()
+      case e: org.apache.jena.sparql.resultset.ResultSetException => List[QuerySolution]()
     }
+    q.close()
+    return out
   }
   def apply(query: String): List[QuerySolution] = querySelect(query)
 
@@ -97,14 +103,16 @@ object Lexicalization {
   }
 
 
-  def cleanLabel(label: RDFNode): String = {
+  def cleanLabel(label: String): String = {
     /**
      * clean the LABEL removing the language
      * e.g. creator@en -> creator
      */
-    val languageRegex = "@\\w{2}$".r
-    return languageRegex.replaceFirstIn(label.toString, "")
+    val typo = "[\\^]{2}http://.+$".r.replaceFirstIn(label, "")
+    val language = "@[\\w-]+$".r.replaceFirstIn(typo, "")
+    return language
   }
+  def cleanLabel(node: RDFNode): String = cleanLabel(node.toString)
 
 
   def cleanText(text: String): String = {
@@ -131,9 +139,10 @@ object Lexicalization {
      */
     if (label == null)
       return true
-    val languageRegex = "@\\w{2}$".r
-    val lang = languageRegex.findFirstIn(label.toString).getOrElse("@")
-    return lang == "@" + language 
+    val languageRegex = "@[\\w-]+$".r
+    val lang = s"@$language"
+    val labelLang = languageRegex.findFirstIn(label.toString).getOrElse(lang)
+    return labelLang == lang
   }
 
   def apply(queries: List[QuerySolution], language: String, variable: String): Map[RDFNode, List[String]] = {
@@ -146,13 +155,15 @@ object Lexicalization {
     val validQueries = queries.filter(q => filterLanguage(q.get(s"?${variable}_label"), language))
     val lexicalizations: Map[RDFNode, List[RDFNode]] = nodes
       .map(n => (n, validQueries.filter(q => q.get(s"?$variable") == n)
-                                .map(q => q.get(s"?${variable}_label"))))
+                   .map(q => q.get(s"?${variable}_label"))))
       .toMap
+    val autoclean = (n: RDFNode) => {
+      if (n.isLiteral) cleanText(cleanLabel(n))
+      else             cleanText(cleanUri(n))
+    }
     val out = lexicalizations
-      .map(kv => (kv._1, cleanUri(kv._1) +: kv._2.filter(e => e != null)
-                                                 .map(cleanLabel)))
-      .map(kv => (kv._1, kv._2.map(cleanText)))
-    return out
+      .map(kv => (kv._1, (kv._1 +: kv._2).filter(_ != null)))
+    return out.map(kv => (kv._1, kv._2.map(autoclean).toSet.toList))
   }
 
   def apply(node: DUDES.MainDUDES, language: String): String = {
@@ -165,7 +176,7 @@ object Lexicalization {
       return ""
     // get all labels of a node
     val labelQuery = s"""SELECT DISTINCT ?label WHERE {
-                        |  $node  rdfs:label  ?label
+                        |  $node  $labelRelation ?label
                         |}""".stripMargin
     /*
      * get the first label in the desired language, or the (cleaned) name of the
@@ -185,14 +196,29 @@ object Lexicalization {
 
 object NEE {
 
+  def isRelation(node: RDFNode): Boolean = {
+    val query = s"""ASK WHERE {
+                   |  ?r  <$node>  ?o.
+                   |}""".stripMargin
+    return KG.queryAsk(query)
+  }
+
+  def isClass(node: RDFNode): Boolean = {
+    val query = s"""ASK WHERE {
+                   |  ?x  a  <$node>.
+                   |}""".stripMargin
+    return KG.queryAsk(query)
+  }
+
+
   def getWithLanguage(variable: String, label: String, lang: String): String =
     /**
      * get a piece of query to retrieve a LABEL in any desired LANGuage
      */
     s"""  {
-       |    $variable ?r "$label"@$lang.
+       |    $variable ?label "$label"@$lang.
        |  } UNION {
-       |    $variable ?r "$label".
+       |    $variable ?label "$label".
        |  }
        |""".stripMargin
 
@@ -281,7 +307,7 @@ object NEE {
     // the list bottom-top
     val parsingOrder: List[Sentence] = candidates
       .keySet.toList
-      .sortBy(s => getTreeRoot(s).toInt )
+      .sortBy(s => getTreeDepth(s, sentence))
       .reverse
 
     def areConsecutive(sent1: Sentence, sent2: Sentence): Boolean = {
@@ -323,10 +349,10 @@ object NEE {
         val newCandidates: List[RDFNode] = candidates(nextSent).toList
 
         // possible expansions of the graph from the selected candidates
-        val nextSteps: List[QuerySolution] = QASystem.expandGraph(oldDudes(), out)
-        val r = nextSteps.map(s => s.get("?relation"))
-        val o = nextSteps.map(s => s.get("?object"))
-        val c = nextSteps.map(s => s.get("?class"))
+        val nextSteps: List[QuerySolution] = QASystem.expandGraph(oldDudes, out)
+        val r = nextSteps.map(s => s.get("?relation")).filter(_ != null)
+        val o = nextSteps.map(s => s.get("?object")).filter(_ != null)
+        val c = nextSteps.map(s => s.get("?class")).filter(_ != null)
 
         /*
          * it returns a list of couples (dudes, edges) that will be used to
@@ -381,7 +407,16 @@ object NEE {
      */
     val topicDUDES: Map[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]] =
       candidates(parsingOrder.head)
-        .map(rdf => new DUDES.ObjectDUDES(parsingOrder.head, rdf, 0))
+        .map(rdf => {
+               if (isRelation(rdf))
+                 new DUDES.RelationDUDES(parsingOrder.head, rdf, 0)
+               // var out = List[DUDES.MainDUDES](new DUDES.ObjectDUDES(parsingOrder.head, rdf, 0))
+               else if (isClass(rdf))
+                 new DUDES.ClassIncognitaDUDES(parsingOrder.head, rdf, 0)
+               else
+                 new DUDES.ObjectDUDES(parsingOrder.head, rdf, 0)
+               // out
+             })
         .map(d => (List(d), List[DiEdge[DUDES.MainDUDES]]()))
         .toMap[List[DUDES.MainDUDES], List[DiEdge[DUDES.MainDUDES]]]
 
@@ -410,6 +445,17 @@ object NEE {
      * return a DUDES representation of the sentence
      */
     return disambiguate(tree, slidingWindow(tree, logger), logger)
+      .sortBy(g => {
+                val t = DUDES.getTopic(g, tree)
+                if (! t.isDefined) -1
+                else t.get._1 match {
+                  case d: DUDES.IncognitaDUDES => +4
+                  case d: DUDES.ClassIncognitaDUDES => +3
+                  case d: DUDES.RelationDUDES => +2
+                  case d: DUDES.ObjectDUDES => +1
+                  case _ => 0
+                }
+              })
   }
 
 }
