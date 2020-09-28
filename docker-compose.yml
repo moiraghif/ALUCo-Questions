@@ -16,7 +16,7 @@ services:
     build: ./bert_rest
 
   # the main QA system
-  qa_system:
+  aluco:
     build: ./qa_system
     volumes:
       - "./code/src:/app/src"
